@@ -93,6 +93,7 @@
   tbody tr:hover{background:var(--paper-2);}
   .mono{font-family:'IBM Plex Mono',monospace;}
   .tright{text-align:right;}
+  .tcenter{text-align:center;}
   .muted{color:var(--ink-soft);}
 
   .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.02em;}
@@ -130,6 +131,11 @@
 
   .overlay{position:fixed;inset:0;background:rgba(19,23,35,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
   .modal{background:#fff;border-radius:12px;padding:22px 24px;width:100%;max-width:440px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative;}
+  .modal.wide{max-width:960px;}
+  .modal table{width:100%;border-collapse:collapse;font-size:12px;}
+  .modal table th, .modal table td{padding:5px 6px;}
+  .modal table input{width:56px;text-align:center;padding:4px;font-size:12px;}
+  .modal table input.wide-input{width:100px;text-align:left;}
   .modal h3{font-family:'Fraunces',serif;margin:0 0 4px;color:var(--navy);font-size:17px;}
   .modal .mhint{font-size:11.5px;color:var(--ink-soft);margin:0 0 16px;}
   .field{margin-bottom:12px;}
@@ -180,32 +186,55 @@ const CLASS_DEFS = [
 ];
 const CLASS_LABEL = Object.fromEntries(CLASS_DEFS.map(c=>[c.code,c.label]));
 
+function mkFees(tS1,tS2,reg,exam,act,uni,lib){
+  return {
+    tuitionS1:tS1, tuitionS2:tS2,
+    registrationS1:reg, registrationS2:0,
+    examS1:exam, examS2:exam,
+    activityS1:act, activityS2:act,
+    uniformS1:uni, uniformS2:uni,
+    libraryS1:lib, libraryS2:lib,
+    ptaS1:0, ptaS2:0,
+    computerS1:0, computerS2:0,
+    sportsS1:0, sportsS2:0,
+    breakageS1:0, breakageS2:0,
+    idcardS1:0, idcardS2:0,
+  };
+}
+const CATEGORIES = ['tuition','registration','exam','activity','uniform','library','pta','computer','sports','breakage','idcard'];
+const CATEGORY_LABELS = {tuition:'Tuition', registration:'Registration', exam:'Exam Fee', activity:'Activity Fee', uniform:'Uniform Fee', library:'Library Fee', pta:'PTA Fee', computer:'Computer Fee', sports:'Sports Fee', breakage:'Breakage Fee', idcard:'ID Card Fee'};
 const DEFAULT_FEES = {
-  ABC:{tuitionS1:800, tuitionS2:800, registration:300, exam:200, activity:150, uniform:250, library:100, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  K1: {tuitionS1:900, tuitionS2:900, registration:300, exam:200, activity:150, uniform:250, library:100, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  K2: {tuitionS1:950, tuitionS2:950, registration:350, exam:200, activity:150, uniform:250, library:100, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G1: {tuitionS1:1000,tuitionS2:1000,registration:350, exam:250, activity:200, uniform:300, library:150, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G2: {tuitionS1:1000,tuitionS2:1000,registration:350, exam:250, activity:200, uniform:300, library:150, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G3: {tuitionS1:1050,tuitionS2:1050,registration:350, exam:250, activity:200, uniform:300, library:150, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G4: {tuitionS1:1050,tuitionS2:1050,registration:350, exam:250, activity:200, uniform:300, library:150, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G5: {tuitionS1:1100,tuitionS2:1100,registration:400, exam:300, activity:200, uniform:350, library:150, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G6: {tuitionS1:1100,tuitionS2:1100,registration:400, exam:300, activity:200, uniform:350, library:150, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G7: {tuitionS1:1500,tuitionS2:1500,registration:500, exam:400, activity:250, uniform:400, library:200, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G8: {tuitionS1:1500,tuitionS2:1500,registration:500, exam:400, activity:250, uniform:400, library:200, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G9: {tuitionS1:1600,tuitionS2:1600,registration:500, exam:400, activity:250, uniform:400, library:200, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G10:{tuitionS1:1600,tuitionS2:1600,registration:500, exam:500, activity:250, uniform:400, library:200, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G11:{tuitionS1:1800,tuitionS2:1800,registration:600, exam:500, activity:300, uniform:450, library:200, pta:0, computer:0, sports:0, breakage:0, idcard:0},
-  G12:{tuitionS1:2000,tuitionS2:2000,registration:600, exam:600, activity:300, uniform:450, library:200, pta:0, computer:0, sports:0, breakage:0, idcard:0},
+  ABC: mkFees(800,800,300,200,150,250,100),
+  K1:  mkFees(900,900,300,200,150,250,100),
+  K2:  mkFees(950,950,350,200,150,250,100),
+  G1:  mkFees(1000,1000,350,250,200,300,150),
+  G2:  mkFees(1000,1000,350,250,200,300,150),
+  G3:  mkFees(1050,1050,350,250,200,300,150),
+  G4:  mkFees(1050,1050,350,250,200,300,150),
+  G5:  mkFees(1100,1100,400,300,200,350,150),
+  G6:  mkFees(1100,1100,400,300,200,350,150),
+  G7:  mkFees(1500,1500,500,400,250,400,200),
+  G8:  mkFees(1500,1500,500,400,250,400,200),
+  G9:  mkFees(1600,1600,500,400,250,400,200),
+  G10: mkFees(1600,1600,500,500,250,400,200),
+  G11: mkFees(1800,1800,600,500,300,450,200),
+  G12: mkFees(2000,2000,600,600,300,450,200),
 };
-const NEW_FEE_FIELDS = ['pta','computer','sports','breakage','idcard'];
-const FEE_LABELS = {tuitionS1:'Tuition S1', tuitionS2:'Tuition S2', registration:'Registration', exam:'Exam Fee', activity:'Activity Fee', uniform:'Uniform Fee', library:'Library Fee', pta:'PTA Fee', computer:'Computer Fee', sports:'Sports Fee', breakage:'Breakage Fee', idcard:'ID Card Fee'};
-/* Once-only fees (Semester 1 only): registration, PTA, breakage, ID card. Per-semester fees (charged both S1 and S2): exam, activity, uniform, library, computer, sports. */
 const DEFAULT_SCHOOL_INFO = {name:'', county:'', year:'2025/2026', principal:'', bursar:'', activated:''};
+const DEFAULT_TAX_BRACKETS = [
+  {min:0, max:5000, rate:0},
+  {min:5000, max:15000, rate:5},
+  {min:15000, max:null, rate:10},
+];
+const GRADE_COLS_S1 = [['p1','P1'],['p2','P2'],['p3','P3'],['examS1','Exam']];
+const GRADE_COLS_S2 = [['p4','P4'],['p5','P5'],['p6','P6'],['examS2','Exam']];
+const RANK_PERIODS = [['p1','Period 1'],['p2','Period 2'],['p3','Period 3'],['examS1','Semester 1 Exam'],['avgS1','Semester 1 Average'],
+  ['p4','Period 4'],['p5','Period 5'],['p6','Period 6'],['examS2','Semester 2 Exam'],['avgS2','Semester 2 Average'],['overall','Overall Average']];
 
 const ROLES = {
-  admin:  {label:'Admin',            can:{manageUsers:true,  editFees:true,  manageStudents:true, submitPayment:true, approvePayments:true, deletePayments:true, manageGrades:true}},
-  bursar: {label:'Bursar / Cashier', can:{manageUsers:false, editFees:false, manageStudents:true, submitPayment:true, approvePayments:false, deletePayments:false, manageGrades:false}},
-  viewer: {label:'Viewer',            can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false}},
+  admin:  {label:'Admin',            can:{manageUsers:true,  editFees:true,  manageStudents:true, submitPayment:true, approvePayments:true, deletePayments:true, manageGrades:true, manageTeachers:true}},
+  bursar: {label:'Bursar / Cashier', can:{manageUsers:false, editFees:false, manageStudents:true, submitPayment:true, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false}},
+  viewer: {label:'Viewer',            can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false}},
 };
 function can(perm){ return !!(STATE.currentUser && ROLES[STATE.currentUser.role] && ROLES[STATE.currentUser.role].can[perm]); }
 
@@ -217,12 +246,17 @@ let STATE = {
   schoolInfo:{...DEFAULT_SCHOOL_INFO},
   fees: JSON.parse(JSON.stringify(DEFAULT_FEES)),
   students:[], log:[], users:[], grades:[],
+  teachers:[], teacherPayments:[], taxBrackets: JSON.parse(JSON.stringify(DEFAULT_TAX_BRACKETS)),
   receiptCounter:1,
   view:'dashboard',
   dashboardClass:'ALL',
   studentsFilter:{classCode:'ALL', status:'ALL', type:'ALL', q:''},
   logTab:'posted',
   gradesClass: CLASS_DEFS[0].code,
+  gradesTab:'report',
+  rankClass: CLASS_DEFS[0].code,
+  rankPeriod: 'avgS1',
+  teachersTab:'profiles',
 };
 
 /* ============================= ROW <-> APP MAPPING ============================= */
@@ -252,6 +286,52 @@ function logToRow(l){
     submitted_by:l.submittedBy||null, submitted_by_name:l.submittedByName||null, submitted_at:l.submittedAt||null,
     reviewed_by:l.reviewedBy||null, reviewed_by_name:l.reviewedByName||null, reviewed_at:l.reviewedAt||null, review_note:l.reviewNote||null,
     deleted_by:l.deletedBy||null, deleted_by_name:l.deletedByName||null, deleted_at:l.deletedAt||null, delete_note:l.deleteNote||null};
+}
+function gradeFromRow(r){
+  return {id:r.id, studentId:r.student_id, subject:r.subject,
+    p1:r.p1, p2:r.p2, p3:r.p3, examS1:r.exam_s1,
+    p4:r.p4, p5:r.p5, p6:r.p6, examS2:r.exam_s2,
+    remarks:r.remarks, updatedByName:r.updated_by_name, updatedAt:r.updated_at};
+}
+function gradeToRow(g){
+  return {id:g.id, student_id:g.studentId, subject:g.subject,
+    p1:numOrNull(g.p1), p2:numOrNull(g.p2), p3:numOrNull(g.p3), exam_s1:numOrNull(g.examS1),
+    p4:numOrNull(g.p4), p5:numOrNull(g.p5), p6:numOrNull(g.p6), exam_s2:numOrNull(g.examS2),
+    remarks:g.remarks||null, updated_by:g.updatedBy||null, updated_by_name:g.updatedByName||null, updated_at:g.updatedAt||new Date().toISOString()};
+}
+function numOrNull(v){ return (v===''||v===null||v===undefined) ? null : Number(v); }
+function gradeAvg(g, part){
+  const keys = part==='s1' ? ['p1','p2','p3','examS1'] : ['p4','p5','p6','examS2'];
+  const vals = keys.map(k=>g[k]).filter(v=>v!==null && v!==undefined && v!=='');
+  return vals.length ? vals.reduce((a,v)=>a+Number(v),0)/vals.length : null;
+}
+function teacherFromRow(r){
+  return {id:r.id, name:r.name, contact:r.contact, email:r.email, subjects:r.subjects||'', classes:r.classes||'',
+    hireDate:r.hire_date, status:r.status||'Active', baseSalary:Number(r.base_salary)||0};
+}
+function teacherToRow(t){
+  return {id:t.id, name:t.name, contact:t.contact||null, email:t.email||null, subjects:t.subjects||'', classes:t.classes||'',
+    hire_date:t.hireDate||null, status:t.status||'Active', base_salary:Number(t.baseSalary)||0};
+}
+function paymentFromRow(r){
+  return {id:r.id, teacherId:r.teacher_id, teacherName:r.teacher_name, month:r.month, gross:Number(r.gross)||0,
+    tax:Number(r.tax)||0, deductions:r.deductions||[], net:Number(r.net)||0, paidDate:r.paid_date,
+    paidByName:r.paid_by_name, createdAt:r.created_at};
+}
+function paymentToRow(p){
+  return {id:p.id, teacher_id:p.teacherId, teacher_name:p.teacherName, month:p.month, gross:p.gross,
+    tax:p.tax, deductions:p.deductions||[], net:p.net, paid_date:p.paidDate||null,
+    paid_by:p.paidBy||null, paid_by_name:p.paidByName||null};
+}
+function computeTax(gross){
+  const g = Number(gross)||0;
+  let tax = 0;
+  (STATE.taxBrackets||[]).forEach(b=>{
+    const lo = Number(b.min)||0;
+    const hi = (b.max===null || b.max===undefined || b.max==='') ? Infinity : Number(b.max);
+    if(g>lo){ const amountInBracket = Math.min(g,hi)-lo; if(amountInBracket>0) tax += amountInBracket * (Number(b.rate)||0)/100; }
+  });
+  return Math.round(tax*100)/100;
 }
 
 /* ============================= AUTH + DATA LOADING ============================= */
@@ -285,13 +365,22 @@ async function loadAllData(){
     STATE.fees = {};
     CLASS_DEFS.forEach(c=>{ STATE.fees[c.code] = {...DEFAULT_FEES[c.code], ...(savedFees[c.code]||{})}; });
     STATE.receiptCounter = Number(cfgRes.data.receipt_counter)||1;
+    STATE.taxBrackets = (cfgRes.data.tax_brackets && cfgRes.data.tax_brackets.length) ? cfgRes.data.tax_brackets : JSON.parse(JSON.stringify(DEFAULT_TAX_BRACKETS));
   }
   STATE.students = (studentsRes.data||[]).map(studentFromRow);
   STATE.log = (logRes.data||[]).map(logFromRow);
   STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, createdAt:r.created_at}));
   if(can('manageGrades')){
     const {data:gradesData} = await sb.from('grades').select('*').order('subject');
-    STATE.grades = (gradesData||[]).map(r=>({id:r.id, studentId:r.student_id, subject:r.subject, s1Score:r.s1_score, s2Score:r.s2_score, remarks:r.remarks, updatedByName:r.updated_by_name, updatedAt:r.updated_at}));
+    STATE.grades = (gradesData||[]).map(gradeFromRow);
+  }
+  if(can('manageTeachers')){
+    const [teachersRes, payRes] = await Promise.all([
+      sb.from('teachers').select('*').order('name'),
+      sb.from('teacher_payments').select('*').order('month', {ascending:false}),
+    ]);
+    STATE.teachers = (teachersRes.data||[]).map(teacherFromRow);
+    STATE.teacherPayments = (payRes.data||[]).map(paymentFromRow);
   }
 }
 async function refreshStudentsAndLog(){
@@ -323,9 +412,9 @@ async function logout(){ await sb.auth.signOut(); }
 
 /* ============================= FINANCE LOGIC ============================= */
 function calcDue(feeRow){
-  const f = {pta:0,computer:0,sports:0,breakage:0,idcard:0, ...feeRow};
-  const s1Base = f.tuitionS1 + f.registration + f.exam + f.activity + f.uniform + f.library + f.pta + f.breakage + f.idcard + f.computer + f.sports;
-  const s2Base = f.tuitionS2 + f.exam + f.activity + f.uniform + f.library + f.computer + f.sports;
+  const f = feeRow || {};
+  let s1Base = 0, s2Base = 0;
+  CATEGORIES.forEach(cat=>{ s1Base += Number(f[cat+'S1'])||0; s2Base += Number(f[cat+'S2'])||0; });
   return {s1Base, s2Base};
 }
 function calcFinance(student){
@@ -371,10 +460,10 @@ function badge(status){
 }
 let modalRoot = null;
 function closeModal(){ if(modalRoot){ modalRoot.remove(); modalRoot=null; } }
-function openModal(html){
+function openModal(html, extraClass){
   closeModal();
   modalRoot = document.createElement('div'); modalRoot.className='overlay';
-  modalRoot.innerHTML = `<div class="modal">${html}</div>`;
+  modalRoot.innerHTML = `<div class="modal${extraClass?(' '+extraClass):''}">${html}</div>`;
   modalRoot.addEventListener('mousedown', (e)=>{ if(e.target===modalRoot) closeModal(); });
   document.body.appendChild(modalRoot);
 }
@@ -476,6 +565,7 @@ function render(){
     (can('approvePayments')||can('submitPayment')) ? ['approvals','⏳','Approvals', pendingCount||null] : null,
     ['log','✎','Payment Log', null],
     can('manageGrades') ? ['grades','◈','Grades', null] : null,
+    can('manageTeachers') ? ['teachers','🎓','Teachers', null] : null,
     can('manageUsers') ? ['users','◍','Users', null] : null,
   ].filter(Boolean);
 
@@ -512,6 +602,7 @@ function render(){
   else if(STATE.view==='approvals' && (can('approvePayments')||can('submitPayment'))) renderApprovals(main);
   else if(STATE.view==='log') renderLog(main);
   else if(STATE.view==='grades' && can('manageGrades')) renderGrades(main);
+  else if(STATE.view==='teachers' && can('manageTeachers')) renderTeachers(main);
   else if(STATE.view==='users' && can('manageUsers')) renderUsers(main);
   else { STATE.view='dashboard'; renderDashboard(main); }
 }
@@ -587,19 +678,29 @@ function renderDashboard(main){
 
 /* ============================= FEE STRUCTURE ============================= */
 function renderFees(main){
-  const fields = ['tuitionS1','tuitionS2','registration','exam','activity','uniform','library','pta','computer','sports','breakage','idcard'];
   main.innerHTML = `
-    <div class="topline"><div><h2>Fee Structure</h2><p>Set fees once per class — every student balance updates automatically. Amounts in LRD.</p></div></div>
+    <div class="topline"><div><h2>Fee Structure</h2><p>Every fee category has its own Semester 1 and Semester 2 amount. Amounts in LRD.</p></div></div>
     <div class="panel" style="overflow-x:auto;">
-      <table><thead><tr><th>Class</th>${fields.map(k=>`<th class="tright">${FEE_LABELS[k]}</th>`).join('')}<th class="tright">S1 Total</th><th class="tright">S2 Total</th></tr></thead>
+      <table><thead>
+        <tr><th rowspan="2" style="vertical-align:bottom;">Class</th><th colspan="${CATEGORIES.length}" class="tcenter" style="border-bottom:2px solid var(--navy);">Semester 1</th><th colspan="${CATEGORIES.length}" class="tcenter" style="border-bottom:2px solid var(--navy);">Semester 2</th><th rowspan="2" class="tright" style="vertical-align:bottom;">S1 Total</th><th rowspan="2" class="tright" style="vertical-align:bottom;">S2 Total</th><th rowspan="2" class="tright" style="vertical-align:bottom;">Overall</th></tr>
+        <tr>${CATEGORIES.map(cat=>`<th class="tright">${CATEGORY_LABELS[cat]}</th>`).join('')}${CATEGORIES.map(cat=>`<th class="tright">${CATEGORY_LABELS[cat]}</th>`).join('')}</tr>
+      </thead>
         <tbody>${CLASS_DEFS.map(c=>{
           const f = STATE.fees[c.code]; const {s1Base, s2Base} = calcDue(f);
           return `<tr><td><strong>${esc(c.label)}</strong></td>
-            ${fields.map(k=>`<td class="tright"><input type="number" min="0" data-fee="${c.code}" data-field="${k}" value="${f[k]||0}" style="width:78px;text-align:right;"></td>`).join('')}
-            <td class="tright mono" style="font-weight:600;">${fmt(s1Base)}</td><td class="tright mono" style="font-weight:600;">${fmt(s2Base)}</td></tr>`;
-        }).join('')}</tbody></table>
+            ${CATEGORIES.map(cat=>`<td class="tright"><input type="number" min="0" data-fee="${c.code}" data-field="${cat}S1" value="${f[cat+'S1']||0}" style="width:64px;text-align:right;"></td>`).join('')}
+            ${CATEGORIES.map(cat=>`<td class="tright"><input type="number" min="0" data-fee="${c.code}" data-field="${cat}S2" value="${f[cat+'S2']||0}" style="width:64px;text-align:right;"></td>`).join('')}
+            <td class="tright mono" style="font-weight:600;">${fmt(s1Base)}</td><td class="tright mono" style="font-weight:600;">${fmt(s2Base)}</td><td class="tright mono" style="font-weight:700;color:var(--navy);">${fmt(s1Base+s2Base)}</td></tr>`;
+        }).join('')}
+        </tbody>
+        <tfoot>${(()=>{
+          let sumS1=0, sumS2=0;
+          CLASS_DEFS.forEach(c=>{ const d=calcDue(STATE.fees[c.code]); sumS1+=d.s1Base; sumS2+=d.s2Base; });
+          return `<tr style="border-top:2px solid var(--navy);font-weight:700;"><td colspan="${1+CATEGORIES.length*2}">Total collectible — all classes</td><td class="tright mono">${fmt(sumS1)}</td><td class="tright mono">${fmt(sumS2)}</td><td class="tright mono">${fmt(sumS1+sumS2)}</td></tr>`;
+        })()}</tfoot>
+      </table>
     </div>
-    <p class="muted" style="font-size:12px;">Charged once, Semester 1 only: Registration, PTA, Breakage, ID Card. Charged each semester: Exam, Activity, Uniform, Library, Computer, Sports. New fee fields default to 0 — update them with your actual amounts. Overpayment in Semester 1 is automatically credited toward Semester 2.</p>
+    <p class="muted" style="font-size:12px;">Each category (Registration, PTA, Breakage, ID Card, etc.) now has an independent Semester 1 amount and Semester 2 amount — leave Semester 2 at 0 for anything only charged once. Overpayment in Semester 1 is automatically credited toward Semester 2.</p>
   `;
   main.querySelectorAll('[data-fee]').forEach(inp=>{
     inp.onchange = async ()=>{
@@ -974,25 +1075,40 @@ function openPaymentModal(studentId){
 
 /* ============================= GRADES (Admin only — high restriction) ============================= */
 function slugify(s){ return String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || 'subject'; }
+const BLANK_GRADE_ROW = (studentId)=>({id:null, studentId, subject:'', p1:'', p2:'', p3:'', examS1:'', p4:'', p5:'', p6:'', examS2:'', remarks:''});
 
 function renderGrades(main){
+  const tab = STATE.gradesTab || 'report';
+  main.innerHTML = `
+    <div class="topline">
+      <div><h2>Grade Reporting</h2><p>Restricted to Admin only. 3 periods + an exam per semester, 6 periods total.</p></div>
+      <div class="topline-actions">
+        <button class="btn ${tab==='report'?'':'ghost'}" data-gtab="report">Report Cards</button>
+        <button class="btn ${tab==='rank'?'':'ghost'}" data-gtab="rank">Class Ranking</button>
+      </div>
+    </div>
+    <div id="gradesBody"></div>
+  `;
+  main.querySelectorAll('[data-gtab]').forEach(b=> b.onclick = ()=>{ STATE.gradesTab = b.dataset.gtab; render(); });
+  const body = main.querySelector('#gradesBody');
+  if(tab==='rank') renderClassRanking(body); else renderReportCards(body);
+}
+
+function renderReportCards(main){
   const cls = STATE.gradesClass || CLASS_DEFS[0].code;
   const list = STATE.students.filter(s=>s.classCode===cls).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   main.innerHTML = `
-    <div class="topline">
-      <div><h2>Grade Reporting</h2><p>Restricted to Admin only. Enter or review report card scores per student.</p></div>
-      <div class="topline-actions">
-        <select id="gClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select>
-      </div>
-    </div>
+    <div class="topline"><div></div><div class="topline-actions"><select id="gClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div></div>
     <div class="panel" style="overflow-x:auto;">
       ${list.length===0? `<p class="muted" style="font-size:13px;">No students in this class yet.</p>` : `
-      <table><thead><tr><th>ID</th><th>Name</th><th class="tright">Subjects Recorded</th><th class="tright">Average</th><th></th></tr></thead>
+      <table><thead><tr><th>ID</th><th>Name</th><th class="tright">Subjects Recorded</th><th class="tright">Sem 1 Avg</th><th class="tright">Sem 2 Avg</th><th></th></tr></thead>
         <tbody>${list.map(s=>{
           const g = STATE.grades.filter(x=>x.studentId===s.id);
-          const scores = g.flatMap(x=>[x.s1Score,x.s2Score]).filter(v=>v!==null && v!==undefined && v!=='');
-          const avg = scores.length? (scores.reduce((a,v)=>a+Number(v),0)/scores.length).toFixed(1) : '—';
-          return `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.name)||'<span class="muted">(unnamed)</span>'}</td><td class="tright">${g.length}</td><td class="tright mono">${avg}</td><td><button class="btn ghost" data-grade="${s.id}">Report Card</button></td></tr>`;
+          const s1s = g.map(x=>gradeAvg(x,'s1')).filter(v=>v!==null);
+          const s2s = g.map(x=>gradeAvg(x,'s2')).filter(v=>v!==null);
+          const a1 = s1s.length? (s1s.reduce((a,v)=>a+v,0)/s1s.length).toFixed(1) : '—';
+          const a2 = s2s.length? (s2s.reduce((a,v)=>a+v,0)/s2s.length).toFixed(1) : '—';
+          return `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.name)||'<span class="muted">(unnamed)</span>'}</td><td class="tright">${g.length}</td><td class="tright mono">${a1}</td><td class="tright mono">${a2}</td><td><button class="btn ghost" data-grade="${s.id}">Report Card</button></td></tr>`;
         }).join('')}</tbody></table>`}
     </div>
     <p class="muted" style="font-size:12px;">Only Admin accounts can view or edit grades — Bursars and Viewers have no access to this section.</p>
@@ -1006,32 +1122,60 @@ function openGradesModal(studentId){
   const s = STATE.students.find(x=>x.id===studentId);
   if(!s) return;
   let rows = STATE.grades.filter(g=>g.studentId===studentId).map(g=>({...g}));
-  if(rows.length===0) rows = [{id:null, studentId, subject:'', s1Score:'', s2Score:'', remarks:''}];
+  if(rows.length===0) rows = [BLANK_GRADE_ROW(studentId)];
+  const allCols = [...GRADE_COLS_S1, ...GRADE_COLS_S2];
 
   function draw(){
     openModal(`
       <button class="close-x" data-close>×</button>
       <h3>Report Card</h3>
-      <p class="mhint">${esc(s.name)||esc(s.id)} · ${esc(CLASS_LABEL[s.classCode])}</p>
-      <div id="gRows">
+      <p class="mhint">${esc(s.name)||esc(s.id)} · ${esc(CLASS_LABEL[s.classCode])} — 3 periods + exam per semester</p>
+      <div style="overflow-x:auto;">
+      <table id="gRows"><thead><tr>
+        <th style="text-align:left;">Subject</th>
+        <th colspan="4" class="tcenter" style="border-bottom:1px solid var(--line);">Semester 1</th>
+        <th class="tright">Avg S1</th>
+        <th colspan="4" class="tcenter" style="border-bottom:1px solid var(--line);">Semester 2</th>
+        <th class="tright">Avg S2</th>
+        <th style="text-align:left;">Remarks</th><th></th>
+      </tr>
+      <tr><th></th>${GRADE_COLS_S1.map(([k,lbl])=>`<th class="tright">${lbl}</th>`).join('')}<th></th>${GRADE_COLS_S2.map(([k,lbl])=>`<th class="tright">${lbl}</th>`).join('')}<th></th><th></th><th></th></tr>
+      </thead>
+      <tbody>
         ${rows.map((r,i)=>`
-          <div class="field2" data-row="${i}" style="align-items:end;grid-template-columns:1.6fr 0.9fr 0.9fr 1.4fr auto;">
-            <div class="field"><label>${i===0?'Subject':''}</label><input type="text" class="gSubject" value="${esc(r.subject)}" placeholder="e.g. Mathematics"></div>
-            <div class="field"><label>${i===0?'S1 Score':''}</label><input type="number" min="0" max="100" class="gS1" value="${r.s1Score??''}"></div>
-            <div class="field"><label>${i===0?'S2 Score':''}</label><input type="number" min="0" max="100" class="gS2" value="${r.s2Score??''}"></div>
-            <div class="field"><label>${i===0?'Remarks':''}</label><input type="text" class="gRemarks" value="${esc(r.remarks||'')}" placeholder="optional"></div>
-            <button class="btn ghost" data-remove="${i}" style="height:38px;">✕</button>
-          </div>`).join('')}
+          <tr data-row="${i}">
+            <td><input type="text" class="gSubject wide-input" value="${esc(r.subject)}" placeholder="e.g. Mathematics"></td>
+            ${GRADE_COLS_S1.map(([k])=>`<td><input type="number" min="0" max="100" class="gCell" data-k="${k}" value="${r[k]??''}"></td>`).join('')}
+            <td class="tright mono">${gradeAvg(r,'s1')!==null? gradeAvg(r,'s1').toFixed(1) : '—'}</td>
+            ${GRADE_COLS_S2.map(([k])=>`<td><input type="number" min="0" max="100" class="gCell" data-k="${k}" value="${r[k]??''}"></td>`).join('')}
+            <td class="tright mono">${gradeAvg(r,'s2')!==null? gradeAvg(r,'s2').toFixed(1) : '—'}</td>
+            <td><input type="text" class="gRemarks wide-input" value="${esc(r.remarks||'')}" placeholder="optional"></td>
+            <td><button class="btn ghost" data-remove="${i}">✕</button></td>
+          </tr>`).join('')}
+      </tbody>
+      <tfoot>
+      <tr style="font-weight:700;border-top:2px solid var(--line);"><td>Total</td>
+        ${GRADE_COLS_S1.map(([k])=>{ let sum=0; rows.forEach(r=>{ if(r[k]!==''&&r[k]!==null&&r[k]!==undefined) sum+=Number(r[k]); }); return `<td class="tright mono">${sum}</td>`; }).join('')}
+        <td></td>
+        ${GRADE_COLS_S2.map(([k])=>{ let sum=0; rows.forEach(r=>{ if(r[k]!==''&&r[k]!==null&&r[k]!==undefined) sum+=Number(r[k]); }); return `<td class="tright mono">${sum}</td>`; }).join('')}
+        <td></td><td></td><td></td>
+      </tr>
+      <tr style="font-weight:700;"><td>Average</td>
+        ${GRADE_COLS_S1.map(([k])=>{ let sum=0,c=0; rows.forEach(r=>{ if(r[k]!==''&&r[k]!==null&&r[k]!==undefined){ sum+=Number(r[k]); c++; } }); return `<td class="tright mono">${c? (sum/c).toFixed(1):'—'}</td>`; }).join('')}
+        <td></td>
+        ${GRADE_COLS_S2.map(([k])=>{ let sum=0,c=0; rows.forEach(r=>{ if(r[k]!==''&&r[k]!==null&&r[k]!==undefined){ sum+=Number(r[k]); c++; } }); return `<td class="tright mono">${c? (sum/c).toFixed(1):'—'}</td>`; }).join('')}
+        <td></td><td></td><td></td>
+      </tr>
+      </tfoot>
+      </table>
       </div>
-      <button class="btn ghost" id="gAddRow" style="margin-top:6px;">+ Add Subject</button>
+      <button class="btn ghost" id="gAddRow" style="margin-top:10px;">+ Add Subject</button>
       <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="gSave">Save Report Card</button></div>
-    `);
+    `, 'wide');
     modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
-    modalRoot.querySelector('#gAddRow').onclick = ()=>{
-      syncRows(); rows.push({id:null, studentId, subject:'', s1Score:'', s2Score:'', remarks:''}); draw();
-    };
+    modalRoot.querySelector('#gAddRow').onclick = ()=>{ syncRows(); rows.push(BLANK_GRADE_ROW(studentId)); draw(); };
     modalRoot.querySelectorAll('[data-remove]').forEach(b=>{
-      b.onclick = ()=>{ syncRows(); rows.splice(Number(b.dataset.remove),1); if(rows.length===0) rows=[{id:null, studentId, subject:'', s1Score:'', s2Score:'', remarks:''}]; draw(); };
+      b.onclick = ()=>{ syncRows(); rows.splice(Number(b.dataset.remove),1); if(rows.length===0) rows=[BLANK_GRADE_ROW(studentId)]; draw(); };
     });
     modalRoot.querySelector('#gSave').onclick = async ()=>{
       syncRows();
@@ -1041,33 +1185,261 @@ function openGradesModal(studentId){
       for(const r of clean){
         const id = studentId + '::' + slugify(r.subject);
         keepIds.add(id);
-        const payload = {
-          id, student_id: studentId, subject: r.subject.trim(),
-          s1_score: r.s1Score===''||r.s1Score===null||r.s1Score===undefined? null : Number(r.s1Score),
-          s2_score: r.s2Score===''||r.s2Score===null||r.s2Score===undefined? null : Number(r.s2Score),
-          remarks: r.remarks||null, updated_by: STATE.currentUser.id, updated_by_name: STATE.currentUser.fullName, updated_at: new Date().toISOString(),
-        };
-        const {error} = await sb.from('grades').upsert(payload);
+        const g = {id, studentId, subject:r.subject.trim(), p1:r.p1, p2:r.p2, p3:r.p3, examS1:r.examS1, p4:r.p4, p5:r.p5, p6:r.p6, examS2:r.examS2,
+          remarks:r.remarks, updatedBy:STATE.currentUser.id, updatedByName:STATE.currentUser.fullName, updatedAt:new Date().toISOString()};
+        const {error} = await sb.from('grades').upsert(gradeToRow(g));
         if(error){ toast('Error saving '+r.subject+': '+error.message); return; }
       }
       const toDelete = existingBefore.filter(g=>!keepIds.has(g.id));
       for(const g of toDelete){ await sb.from('grades').delete().eq('id', g.id); }
       STATE.grades = STATE.grades.filter(g=>g.studentId!==studentId).concat(clean.map(r=>({
-        id: studentId+'::'+slugify(r.subject), studentId, subject:r.subject.trim(), s1Score:r.s1Score, s2Score:r.s2Score, remarks:r.remarks,
-        updatedByName: STATE.currentUser.fullName, updatedAt: new Date().toISOString(),
+        id: studentId+'::'+slugify(r.subject), studentId, subject:r.subject.trim(), p1:r.p1,p2:r.p2,p3:r.p3,examS1:r.examS1,p4:r.p4,p5:r.p5,p6:r.p6,examS2:r.examS2,
+        remarks:r.remarks, updatedByName: STATE.currentUser.fullName, updatedAt: new Date().toISOString(),
       })));
       closeModal(); render(); toast('Report card saved');
     };
   }
   function syncRows(){
-    modalRoot.querySelectorAll('#gRows [data-row]').forEach((el,i)=>{
-      rows[i] = {
-        ...rows[i],
-        subject: el.querySelector('.gSubject').value,
-        s1Score: el.querySelector('.gS1').value,
-        s2Score: el.querySelector('.gS2').value,
-        remarks: el.querySelector('.gRemarks').value,
+    modalRoot.querySelectorAll('#gRows tbody [data-row]').forEach((el,i)=>{
+      const upd = {...rows[i], subject: el.querySelector('.gSubject').value, remarks: el.querySelector('.gRemarks').value};
+      el.querySelectorAll('.gCell').forEach(inp=>{ upd[inp.dataset.k] = inp.value; });
+      rows[i] = upd;
+    });
+  }
+  draw();
+}
+
+function renderClassRanking(main){
+  const cls = STATE.rankClass || CLASS_DEFS[0].code;
+  const period = STATE.rankPeriod || 'avgS1';
+  const list = STATE.students.filter(s=>s.classCode===cls);
+  function studentPeriodAvg(studentId, key){
+    const subs = STATE.grades.filter(g=>g.studentId===studentId);
+    let vals = [];
+    if(key==='avgS1') vals = subs.map(g=>gradeAvg(g,'s1')).filter(v=>v!==null);
+    else if(key==='avgS2') vals = subs.map(g=>gradeAvg(g,'s2')).filter(v=>v!==null);
+    else if(key==='overall') vals = subs.flatMap(g=>['p1','p2','p3','examS1','p4','p5','p6','examS2'].map(k=>g[k])).filter(v=>v!==null && v!==undefined && v!=='').map(Number);
+    else vals = subs.map(g=>g[key]).filter(v=>v!==null && v!==undefined && v!=='').map(Number);
+    return {avg: vals.length? vals.reduce((a,v)=>a+v,0)/vals.length : null, count: vals.length};
+  }
+  const ranked = list.map(s=>{ const r = studentPeriodAvg(s.id, period); return {student:s, avg:r.avg, count:r.count}; })
+    .filter(r=>r.avg!==null).sort((a,b)=>b.avg-a.avg);
+  const noData = list.length - ranked.length;
+  main.innerHTML = `
+    <div class="topline"><div></div><div class="topline-actions">
+      <select id="rClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select>
+      <select id="rPeriod">${RANK_PERIODS.map(([k,lbl])=>`<option value="${k}" ${period===k?'selected':''}>${lbl}</option>`).join('')}</select>
+    </div></div>
+    <div class="panel" style="overflow-x:auto;">
+      ${ranked.length===0? `<p class="muted" style="font-size:13px;">No grades recorded yet for this class/period.</p>` : `
+      <table><thead><tr><th>Rank</th><th>ID</th><th>Name</th><th class="tright">Average</th><th class="tright">Subjects Counted</th></tr></thead>
+        <tbody>${ranked.map((r,i)=>`<tr><td><strong>${i+1}</strong></td><td class="mono">${esc(r.student.id)}</td><td>${esc(r.student.name)||'<span class="muted">(unnamed)</span>'}</td><td class="tright mono" style="font-weight:600;">${r.avg.toFixed(1)}</td><td class="tright">${r.count}</td></tr>`).join('')}</tbody></table>`}
+    </div>
+    ${noData>0? `<p class="muted" style="font-size:12px;">${noData} student(s) in this class have no grades recorded yet for this period and aren't ranked.</p>` : ''}
+  `;
+  main.querySelector('#rClass').onchange = e=>{ STATE.rankClass = e.target.value; render(); };
+  main.querySelector('#rPeriod').onchange = e=>{ STATE.rankPeriod = e.target.value; render(); };
+}
+
+/* ============================= TEACHERS & PAYROLL (Admin only) ============================= */
+function nextTeacherId(){
+  const nums = STATE.teachers.map(t=>{ const m=(t.id||'').match(/-(\d+)$/); return m?parseInt(m[1],10):0; });
+  const next = (nums.length? Math.max(...nums):0) + 1;
+  return `TCH-${String(next).padStart(3,'0')}`;
+}
+function renderTeachers(main){
+  const tab = STATE.teachersTab || 'profiles';
+  main.innerHTML = `
+    <div class="topline">
+      <div><h2>Teachers & Payroll</h2><p>Restricted to Admin only. Profiles, monthly salary, deductions and tax.</p></div>
+      <div class="topline-actions">
+        <button class="btn ${tab==='profiles'?'':'ghost'}" data-ttab="profiles">Profiles</button>
+        <button class="btn ${tab==='salary'?'':'ghost'}" data-ttab="salary">Salary Log</button>
+        <button class="btn ghost" id="taxBtn">Tax Brackets</button>
+      </div>
+    </div>
+    <div id="teachersBody"></div>
+  `;
+  main.querySelectorAll('[data-ttab]').forEach(b=> b.onclick = ()=>{ STATE.teachersTab = b.dataset.ttab; render(); });
+  main.querySelector('#taxBtn').onclick = openTaxBracketsModal;
+  const body = main.querySelector('#teachersBody');
+  if(tab==='salary') renderSalaryLog(body); else renderTeacherProfiles(body);
+}
+
+function renderTeacherProfiles(main){
+  const list = [...STATE.teachers].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  main.innerHTML = `
+    <div class="panel" style="overflow-x:auto;">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn" data-action="add-teacher">+ Add Teacher</button></div>
+      ${list.length===0? `<p class="muted" style="font-size:13px;">No teachers added yet.</p>` : `
+      <table><thead><tr><th>ID</th><th>Name</th><th>Subjects</th><th>Classes</th><th class="tright">Base Salary</th><th>Status</th><th></th></tr></thead>
+        <tbody>${list.map(t=>`<tr><td class="mono">${esc(t.id)}</td><td>${esc(t.name)}</td><td class="muted">${esc(t.subjects)||'—'}</td><td class="muted">${esc(t.classes)||'—'}</td><td class="tright mono">${fmt(t.baseSalary)}</td><td><span class="badge ${t.status==='Active'?'role':'inactive'}">${esc(t.status)}</span></td>
+          <td style="white-space:nowrap;"><button class="btn ghost" data-pay="${t.id}">Pay Salary</button> <button class="btn ghost" data-edit-t="${t.id}">Edit</button></td></tr>`).join('')}</tbody></table>`}
+    </div>
+  `;
+  main.querySelector('[data-action="add-teacher"]').onclick = ()=> openTeacherModal(null);
+  main.querySelectorAll('[data-edit-t]').forEach(b=> b.onclick = ()=> openTeacherModal(b.dataset.editT));
+  main.querySelectorAll('[data-pay]').forEach(b=> b.onclick = ()=> openSalaryModal(b.dataset.pay));
+}
+
+function openTeacherModal(teacherId){
+  const editing = !!teacherId;
+  const t = editing ? STATE.teachers.find(x=>x.id===teacherId) : null;
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>${editing? 'Edit Teacher':'Add Teacher'}</h3>
+    <div class="field"><label>Full Name</label><input type="text" id="tName" value="${editing?esc(t.name):''}" placeholder="e.g. Mary Kollie"></div>
+    <div class="field2">
+      <div class="field"><label>Contact / Phone</label><input type="text" id="tContact" value="${editing?esc(t.contact||''):''}"></div>
+      <div class="field"><label>Email</label><input type="text" id="tEmail" value="${editing?esc(t.email||''):''}"></div>
+    </div>
+    <div class="field"><label>Subjects Teaching</label><input type="text" id="tSubjects" value="${editing?esc(t.subjects||''):''}" placeholder="e.g. Mathematics, Physics"></div>
+    <div class="field"><label>Classes Assigned</label><input type="text" id="tClasses" value="${editing?esc(t.classes||''):''}" placeholder="e.g. G9, G10, G11"></div>
+    <div class="field2">
+      <div class="field"><label>Base Monthly Salary (LRD)</label><input type="number" min="0" id="tSalary" value="${editing?t.baseSalary:0}"></div>
+      <div class="field"><label>Status</label><select id="tStatus">
+        <option value="Active" ${!editing||t.status==='Active'?'selected':''}>Active</option>
+        <option value="Inactive" ${editing&&t.status==='Inactive'?'selected':''}>Inactive</option>
+      </select></div>
+    </div>
+    <div class="field"><label>Hire Date</label><input type="date" id="tHire" value="${editing&&t.hireDate?t.hireDate:''}"></div>
+    <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="tSave">${editing?'Save Changes':'Add Teacher'}</button></div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#tSave').onclick = async ()=>{
+    const name = modalRoot.querySelector('#tName').value.trim();
+    if(!name){ toast("Enter the teacher's name"); return; }
+    const payload = {
+      id: editing? t.id : nextTeacherId(), name,
+      contact: modalRoot.querySelector('#tContact').value.trim(),
+      email: modalRoot.querySelector('#tEmail').value.trim(),
+      subjects: modalRoot.querySelector('#tSubjects').value.trim(),
+      classes: modalRoot.querySelector('#tClasses').value.trim(),
+      baseSalary: Number(modalRoot.querySelector('#tSalary').value)||0,
+      status: modalRoot.querySelector('#tStatus').value,
+      hireDate: modalRoot.querySelector('#tHire').value,
+    };
+    const {error} = editing ? await sb.from('teachers').update(teacherToRow(payload)).eq('id', payload.id) : await sb.from('teachers').insert(teacherToRow(payload));
+    if(error){ toast('Error: '+error.message); return; }
+    if(editing){ Object.assign(t, payload); } else { STATE.teachers.push(payload); }
+    closeModal(); render(); toast(editing? 'Teacher updated' : 'Teacher added');
+  };
+}
+
+function openSalaryModal(teacherId){
+  const t = STATE.teachers.find(x=>x.id===teacherId);
+  if(!t) return;
+  const month = new Date().toISOString().slice(0,7);
+  let deductions = [];
+
+  function draw(){
+    const gross = Number(document.getElementById('sGross')?.value ?? t.baseSalary) || t.baseSalary;
+    const tax = computeTax(gross);
+    const dedTotal = deductions.reduce((a,d)=>a+(Number(d.amount)||0),0);
+    const net = gross - tax - dedTotal;
+    openModal(`
+      <button class="close-x" data-close>×</button>
+      <h3>Pay Salary — ${esc(t.name)}</h3>
+      <p class="mhint">${esc(t.id)} · Base salary ${fmt(t.baseSalary)}</p>
+      <div class="field2">
+        <div class="field"><label>Month</label><input type="month" id="sMonth" value="${month}"></div>
+        <div class="field"><label>Gross Salary (LRD)</label><input type="number" min="0" id="sGross" value="${gross}"></div>
+      </div>
+      <div class="note-box">Tax: ${fmt(tax)} (computed automatically from your Tax Brackets)</div>
+      <div style="margin-top:12px;"><label style="font-size:11.5px;font-weight:600;color:var(--ink-soft);">Deductions / Penalties</label>
+        <div id="dRows" style="margin-top:6px;">
+          ${deductions.map((d,i)=>`<div class="field2" data-drow="${i}" style="grid-template-columns:2fr 1fr auto;align-items:end;">
+            <div class="field"><input type="text" class="dLabel" value="${esc(d.label)}" placeholder="e.g. Lateness penalty"></div>
+            <div class="field"><input type="number" min="0" class="dAmount" value="${d.amount}"></div>
+            <button class="btn ghost" data-drm="${i}">✕</button>
+          </div>`).join('')}
+        </div>
+        <button class="btn ghost" id="dAdd" style="margin-top:4px;">+ Add Deduction</button>
+      </div>
+      <div class="field2" style="margin-top:14px;">
+        <div class="field"><label>Total Deductions</label><input type="text" value="${fmt(dedTotal)}" disabled></div>
+        <div class="field"><label>Net Pay</label><input type="text" value="${fmt(net)}" disabled style="font-weight:700;color:var(--navy);"></div>
+      </div>
+      <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="sSave">Post Payment</button></div>
+    `);
+    modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+    modalRoot.querySelector('#sGross').onchange = ()=>{ syncDeductions(); draw(); };
+    modalRoot.querySelector('#dAdd').onclick = ()=>{ syncDeductions(); deductions.push({label:'', amount:0}); draw(); };
+    modalRoot.querySelectorAll('[data-drm]').forEach(b=> b.onclick = ()=>{ syncDeductions(); deductions.splice(Number(b.dataset.drm),1); draw(); });
+    modalRoot.querySelectorAll('.dLabel, .dAmount').forEach(inp=> inp.onchange = ()=>{ syncDeductions(); draw(); });
+    modalRoot.querySelector('#sSave').onclick = async ()=>{
+      syncDeductions();
+      const finalGross = Number(modalRoot.querySelector('#sGross').value)||0;
+      const finalMonth = modalRoot.querySelector('#sMonth').value || month;
+      const finalTax = computeTax(finalGross);
+      const finalDedTotal = deductions.reduce((a,d)=>a+(Number(d.amount)||0),0);
+      const finalNet = finalGross - finalTax - finalDedTotal;
+      const payment = {
+        id: 'sal_'+Date.now()+Math.random().toString(36).slice(2,7), teacherId:t.id, teacherName:t.name, month:finalMonth,
+        gross:finalGross, tax:finalTax, deductions, net:finalNet, paidDate:new Date().toISOString().slice(0,10),
+        paidBy:STATE.currentUser.id, paidByName:STATE.currentUser.fullName,
       };
+      const {error} = await sb.from('teacher_payments').insert(paymentToRow(payment));
+      if(error){ toast('Error: '+error.message); return; }
+      STATE.teacherPayments.unshift(payment);
+      closeModal(); render(); toast(`Salary of ${fmt(finalNet)} posted for ${t.name}`);
+    };
+  }
+  function syncDeductions(){
+    modalRoot.querySelectorAll('#dRows [data-drow]').forEach((el,i)=>{
+      deductions[i] = {label: el.querySelector('.dLabel').value, amount: Number(el.querySelector('.dAmount').value)||0};
+    });
+  }
+  draw();
+}
+
+function renderSalaryLog(main){
+  const list = [...STATE.teacherPayments].sort((a,b)=> (b.month||'').localeCompare(a.month||''));
+  main.innerHTML = `
+    <div class="panel" style="overflow-x:auto;">
+      ${list.length===0? `<p class="muted" style="font-size:13px;">No salary payments recorded yet.</p>` : `
+      <table><thead><tr><th>Month</th><th>Teacher</th><th class="tright">Gross</th><th class="tright">Tax</th><th class="tright">Deductions</th><th class="tright">Net</th><th>Paid</th></tr></thead>
+        <tbody>${list.map(p=>{
+          const dedTotal = (p.deductions||[]).reduce((a,d)=>a+(Number(d.amount)||0),0);
+          return `<tr><td class="mono">${esc(p.month)}</td><td>${esc(p.teacherName)}</td><td class="tright mono">${fmt(p.gross)}</td><td class="tright mono">${fmt(p.tax)}</td><td class="tright mono">${fmt(dedTotal)}</td><td class="tright mono" style="font-weight:600;">${fmt(p.net)}</td><td class="muted">${esc(p.paidDate)}</td></tr>`;
+        }).join('')}</tbody></table>`}
+    </div>
+  `;
+}
+
+function openTaxBracketsModal(){
+  let brackets = STATE.taxBrackets.map(b=>({...b}));
+  function draw(){
+    openModal(`
+      <button class="close-x" data-close>×</button>
+      <h3>Tax Deduction Brackets</h3>
+      <p class="mhint">Progressive brackets applied to gross salary. Edit these to match your actual payroll/tax policy — leave the last "Max" blank for "and above."</p>
+      <div id="bRows">
+        ${brackets.map((b,i)=>`<div class="field2" data-brow="${i}" style="grid-template-columns:1fr 1fr 0.8fr auto;align-items:end;">
+          <div class="field"><label>${i===0?'Min (LRD)':''}</label><input type="number" min="0" class="bMin" value="${b.min}"></div>
+          <div class="field"><label>${i===0?'Max (LRD)':''}</label><input type="number" min="0" class="bMax" value="${b.max===null?'':b.max}" placeholder="blank = no limit"></div>
+          <div class="field"><label>${i===0?'Rate %':''}</label><input type="number" min="0" max="100" class="bRate" value="${b.rate}"></div>
+          <button class="btn ghost" data-brm="${i}">✕</button>
+        </div>`).join('')}
+      </div>
+      <button class="btn ghost" id="bAdd" style="margin-top:6px;">+ Add Bracket</button>
+      <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="bSave">Save Brackets</button></div>
+    `);
+    modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+    modalRoot.querySelector('#bAdd').onclick = ()=>{ sync(); brackets.push({min:0,max:null,rate:0}); draw(); };
+    modalRoot.querySelectorAll('[data-brm]').forEach(b=> b.onclick = ()=>{ sync(); brackets.splice(Number(b.dataset.brm),1); draw(); });
+    modalRoot.querySelector('#bSave').onclick = async ()=>{
+      sync();
+      const {error} = await sb.from('school_config').update({tax_brackets: brackets}).eq('id',1);
+      if(error){ toast('Error saving: '+error.message); return; }
+      STATE.taxBrackets = brackets;
+      closeModal(); render(); toast('Tax brackets updated');
+    };
+  }
+  function sync(){
+    modalRoot.querySelectorAll('#bRows [data-brow]').forEach((el,i)=>{
+      const maxVal = el.querySelector('.bMax').value;
+      brackets[i] = {min:Number(el.querySelector('.bMin').value)||0, max: maxVal===''?null:Number(maxVal), rate:Number(el.querySelector('.bRate').value)||0};
     });
   }
   draw();
