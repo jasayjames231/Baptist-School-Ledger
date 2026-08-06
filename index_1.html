@@ -1,0 +1,1452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>School Fee Ledger — Liberia</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  :root{
+    --navy:#132340; --navy-2:#1c3358; --paper:#F6F3EC; --paper-2:#EFEAE0; --ink:#1B1D22; --ink-soft:#5B5F6A;
+    --red:#A8322A; --gold:#C79A3E; --line:#D9D2C2; --green:#2E6E4E; --green-bg:#E4EFE7;
+    --amber:#A9761E; --amber-bg:#F5EAD3; --red-bg:#F5E0DD; --blue-bg:#E3EAF3; --blue:#2A4E82;
+    --white:#FFFFFF; --radius:10px; --shadow: 0 1px 2px rgba(19,35,64,.06), 0 6px 16px rgba(19,35,64,.06);
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;background:var(--paper);color:var(--ink);font-family:'Inter',system-ui,sans-serif;min-height:100vh;}
+  .app{display:flex;min-height:100vh;background:var(--paper);}
+  ::selection{background:var(--gold);color:var(--navy);}
+
+  .auth-wrap{min-height:100vh;background:var(--navy);display:flex;align-items:center;justify-content:center;padding:30px;}
+  .auth-card{background:var(--paper);border-radius:12px;padding:34px 32px;width:100%;max-width:400px;box-shadow:0 20px 60px rgba(0,0,0,.35);}
+  .auth-brand{display:flex;align-items:center;gap:9px;margin-bottom:6px;}
+  .auth-brand .star{color:var(--gold);font-size:20px;}
+  .auth-brand h1{font-family:'Fraunces',serif;font-size:18px;margin:0;color:var(--navy);}
+  .auth-card p.sub{margin:0 0 18px;font-size:12.5px;color:var(--ink-soft);}
+  .auth-card .field{margin-bottom:13px;}
+  .auth-card label{display:block;font-size:11.5px;font-weight:600;color:var(--ink-soft);margin-bottom:4px;}
+  .auth-card input, .auth-card select{width:100%;padding:9px 11px;}
+  .auth-err{background:var(--red-bg);color:var(--red);font-size:12px;padding:8px 10px;border-radius:7px;margin-bottom:12px;}
+  .auth-ok{background:var(--green-bg);color:var(--green);font-size:12px;padding:8px 10px;border-radius:7px;margin-bottom:12px;}
+  .auth-note{background:var(--blue-bg);color:var(--blue);font-size:11.5px;padding:9px 11px;border-radius:7px;margin-bottom:16px;line-height:1.5;}
+  .auth-tabs{display:flex;gap:4px;margin-bottom:18px;border-bottom:1px solid var(--line);}
+  .auth-tab{padding:8px 4px;margin-right:16px;font-size:13px;font-weight:600;color:var(--ink-soft);background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;}
+  .auth-tab.active{color:var(--navy);border-bottom-color:var(--gold);}
+  .setup-screen{min-height:100vh;background:var(--navy);display:flex;align-items:center;justify-content:center;padding:30px;}
+  .setup-card{background:var(--paper);border-radius:12px;padding:30px 32px;max-width:560px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,.35);font-size:13.5px;line-height:1.7;}
+  .setup-card h2{font-family:'Fraunces',serif;color:var(--navy);margin-top:0;}
+  .setup-card code{background:var(--paper-2);padding:2px 6px;border-radius:4px;font-family:'IBM Plex Mono',monospace;font-size:12px;}
+
+  .side{width:230px;flex-shrink:0;background:var(--navy);color:#EDE7D6;display:flex;flex-direction:column;padding:22px 16px;}
+  .brand{display:flex;align-items:flex-start;gap:10px;margin-bottom:26px;padding:0 4px;}
+  .brand-star{font-size:20px;color:var(--gold);line-height:1;margin-top:2px;}
+  .brand-text h1{font-family:'Fraunces',serif;font-size:16.5px;font-weight:600;margin:0;line-height:1.25;color:#fff;}
+  .brand-text span{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#B9C3D6;}
+  nav{display:flex;flex-direction:column;gap:2px;margin-top:6px;}
+  .navbtn{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;background:transparent;border:none;color:#CBD4E3;font-family:'Inter';font-size:13.5px;font-weight:500;text-align:left;cursor:pointer;position:relative;}
+  .navbtn:hover{background:rgba(255,255,255,.06);}
+  .navbtn.active{background:var(--navy-2);color:#fff;}
+  .navbtn .ic{width:16px;text-align:center;opacity:.85;font-size:14px;}
+  .navbtn .navbadge{margin-left:auto;background:var(--gold);color:var(--navy);font-size:10.5px;font-weight:700;padding:1px 6px;border-radius:10px;}
+  .side-foot{margin-top:auto;padding-top:14px;border-top:1px solid rgba(255,255,255,.12);}
+  .side-foot .who{font-size:12.5px;color:#EDE7D6;font-weight:600;}
+  .side-foot .role{font-size:10.5px;color:#9FAAC0;text-transform:uppercase;letter-spacing:.05em;}
+  .side-foot .yr{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#9FAAC0;margin-top:8px;}
+  .side-foot button{width:100%;margin-top:8px;background:none;border:1px solid rgba(255,255,255,.2);color:#CBD4E3;padding:7px;border-radius:7px;font-size:11.5px;cursor:pointer;}
+  .side-foot button:hover{background:rgba(255,255,255,.08);}
+
+  .main{flex:1;padding:26px 30px 40px;overflow-y:auto;}
+  .topline{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:22px;flex-wrap:wrap;gap:10px;}
+  .topline h2{font-family:'Fraunces',serif;font-size:24px;margin:0 0 4px;font-weight:600;color:var(--navy);}
+  .topline p{margin:0;color:var(--ink-soft);font-size:13px;}
+  .topline-actions{display:flex;gap:8px;align-items:center;}
+  .btn{font-family:'Inter';font-size:13px;font-weight:600;padding:9px 15px;border-radius:8px;border:1px solid var(--navy);background:var(--navy);color:#fff;cursor:pointer;}
+  .btn:hover{opacity:.9;}
+  .btn:active{transform:scale(.98);}
+  .btn.ghost{background:transparent;color:var(--navy);}
+  .btn.ghost:hover{background:rgba(19,35,64,.06);}
+  .btn.small{padding:5px 10px;font-size:12px;border-radius:6px;}
+  .btn.danger{background:var(--red);border-color:var(--red);}
+  .btn.danger.ghost{background:transparent;color:var(--red);border-color:var(--red);}
+  .btn.gold{background:var(--gold);border-color:var(--gold);color:var(--navy);}
+  .btn[disabled]{opacity:.45;cursor:not-allowed;}
+
+  .stat-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:22px;}
+  .stat{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;box-shadow:var(--shadow);}
+  .stat .label{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--ink-soft);font-weight:600;}
+  .stat .value{font-family:'Fraunces',serif;font-size:22px;color:var(--navy);margin-top:4px;font-weight:600;}
+  .stat .sub{font-size:11.5px;color:var(--ink-soft);margin-top:2px;font-family:'IBM Plex Mono',monospace;}
+
+  .panel{background:var(--white);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px 20px;margin-bottom:18px;}
+  .panel h3{font-family:'Fraunces',serif;font-size:15.5px;margin:0 0 12px;color:var(--navy);font-weight:600;}
+
+  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:9px;}
+  .bar-row .bl{width:76px;font-size:11.5px;color:var(--ink-soft);flex-shrink:0;}
+  .bar-track{flex:1;height:9px;background:var(--paper-2);border-radius:6px;overflow:hidden;}
+  .bar-fill{height:100%;background:linear-gradient(90deg,var(--navy),var(--navy-2));border-radius:6px;}
+  .bar-pct{width:70px;text-align:right;font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-soft);flex-shrink:0;}
+
+  table{width:100%;border-collapse:collapse;font-size:12.8px;}
+  thead th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.05em;color:var(--ink-soft);border-bottom:1px solid var(--line);padding:8px 8px;font-weight:600;white-space:nowrap;}
+  tbody td{padding:8px 8px;border-bottom:1px solid var(--paper-2);vertical-align:middle;white-space:nowrap;}
+  tbody tr:hover{background:var(--paper-2);}
+  .mono{font-family:'IBM Plex Mono',monospace;}
+  .tright{text-align:right;}
+  .tcenter{text-align:center;}
+  .muted{color:var(--ink-soft);}
+
+  .badge{display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11px;font-weight:700;letter-spacing:.02em;}
+  .badge.paid{background:var(--green-bg);color:var(--green);}
+  .badge.partial{background:var(--amber-bg);color:var(--amber);}
+  .badge.outstanding{background:var(--red-bg);color:var(--red);}
+  .badge.inactive{background:#EAEAEA;color:#888;}
+  .badge.pending{background:var(--blue-bg);color:var(--blue);}
+  .badge.rejected{background:var(--red-bg);color:var(--red);}
+  .badge.deleted{background:#EAEAEA;color:#777;}
+  .badge.role{background:var(--paper-2);color:var(--navy);text-transform:uppercase;font-size:10px;}
+
+  .stamp{display:inline-block;font-family:'Fraunces',serif;font-weight:700;font-size:10px;letter-spacing:.05em;border:1.5px solid currentColor;border-radius:5px;padding:2px 7px;transform:rotate(-3deg);text-transform:uppercase;}
+  .stamp.paid{color:var(--green);}
+  .stamp.partial{color:var(--amber);}
+  .stamp.outstanding{color:var(--red);}
+
+  .toolbar{display:flex;gap:8px;align-items:center;margin-bottom:16px;flex-wrap:wrap;}
+  select, input[type=text], input[type=number], input[type=date], input[type=password], input[type=email], textarea{
+    font-family:'Inter';font-size:12.8px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;background:#fff;color:var(--ink);
+  }
+  textarea{width:100%;resize:vertical;min-height:64px;font-family:'Inter';}
+  input:focus, select:focus, textarea:focus{outline:2px solid var(--gold);outline-offset:1px;}
+  .search{flex:1;min-width:160px;}
+
+  .tabs{display:flex;gap:4px;margin-bottom:14px;border-bottom:1px solid var(--line);}
+  .tab{padding:9px 14px;font-size:12.8px;font-weight:600;color:var(--ink-soft);background:none;border:none;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;}
+  .tab.active{color:var(--navy);border-bottom-color:var(--gold);}
+
+  .empty{text-align:center;padding:50px 20px;color:var(--ink-soft);}
+  .empty .big{font-size:34px;margin-bottom:8px;}
+  .empty h4{font-family:'Fraunces',serif;color:var(--navy);margin:6px 0 4px;font-size:16px;}
+
+  .note-box{background:var(--paper-2);border-left:3px solid var(--gold);padding:8px 10px;border-radius:6px;font-size:12px;color:var(--ink-soft);margin-top:4px;}
+
+  .overlay{position:fixed;inset:0;background:rgba(19,23,35,.5);display:flex;align-items:center;justify-content:center;z-index:50;padding:20px;}
+  .modal{background:#fff;border-radius:12px;padding:22px 24px;width:100%;max-width:440px;max-height:88vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.3);position:relative;}
+  .modal.wide{max-width:960px;}
+  .modal table{width:100%;border-collapse:collapse;font-size:12px;}
+  .modal table th, .modal table td{padding:5px 6px;}
+  .modal table input{width:56px;text-align:center;padding:4px;font-size:12px;}
+  .modal table input.wide-input{width:100px;text-align:left;}
+  .modal h3{font-family:'Fraunces',serif;margin:0 0 4px;color:var(--navy);font-size:17px;}
+  .modal .mhint{font-size:11.5px;color:var(--ink-soft);margin:0 0 16px;}
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:11.5px;font-weight:600;color:var(--ink-soft);margin-bottom:4px;}
+  .field input, .field select, .field textarea{width:100%;}
+  .field2{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:18px;}
+  .close-x{position:absolute;top:16px;right:18px;background:none;border:none;font-size:18px;cursor:pointer;color:var(--ink-soft);}
+
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--navy);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;box-shadow:var(--shadow);z-index:99;font-weight:500;}
+  .school-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 16px;}
+  .school-info-grid .field{margin-bottom:0;}
+  ::-webkit-scrollbar{width:9px;height:9px;}
+  ::-webkit-scrollbar-thumb{background:#CDBFA0;border-radius:5px;}
+
+  @media(max-width:800px){
+    .app{flex-direction:column;}
+    .side{width:100%;flex-direction:row;flex-wrap:wrap;align-items:center;padding:14px;}
+    .brand{margin-bottom:0;margin-right:auto;}
+    nav{flex-direction:row;flex-wrap:wrap;}
+    .side-foot{display:none;}
+    .stat-row{grid-template-columns:1fr 1fr;}
+    .school-info-grid{grid-template-columns:1fr;}
+  }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script>
+/* ============================================================
+   PASTE YOUR SUPABASE CREDENTIALS HERE (from Project Settings → API)
+   ============================================================ */
+const SUPABASE_URL = "https://miymfafhpbkzdmanfxjr.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1peW1mYWZocGJremRtYW5meGpyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0NzM0MDUsImV4cCI6MjEwMTA0OTQwNX0.woqpXYX2UZu5NZBNPaJSRgWG-ERg5AX3s-uJYNk5M-Y";
+/* ============================================================ */
+
+const CONFIGURED = SUPABASE_URL.startsWith('https://') && SUPABASE_ANON_KEY.length > 20;
+const sb = CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+
+/* ============================= DATA MODEL ============================= */
+const CLASS_DEFS = [
+  {code:'ABC', label:'ABC Class'}, {code:'K1', label:'K1 Class'}, {code:'K2', label:'K2 Class'},
+  {code:'G1', label:'Grade 1'}, {code:'G2', label:'Grade 2'}, {code:'G3', label:'Grade 3'},
+  {code:'G4', label:'Grade 4'}, {code:'G5', label:'Grade 5'}, {code:'G6', label:'Grade 6'},
+  {code:'G7', label:'Grade 7'}, {code:'G8', label:'Grade 8'}, {code:'G9', label:'Grade 9'},
+  {code:'G10', label:'Grade 10'}, {code:'G11', label:'Grade 11'}, {code:'G12', label:'Grade 12'},
+];
+const CLASS_LABEL = Object.fromEntries(CLASS_DEFS.map(c=>[c.code,c.label]));
+
+function mkFees(tS1,tS2,reg,exam,act,uni,lib){
+  return {
+    tuitionS1:tS1, tuitionS2:tS2,
+    registrationS1:reg, registrationS2:0,
+    examS1:exam, examS2:exam,
+    activityS1:act, activityS2:act,
+    uniformS1:uni, uniformS2:uni,
+    libraryS1:lib, libraryS2:lib,
+    ptaS1:0, ptaS2:0,
+    computerS1:0, computerS2:0,
+    sportsS1:0, sportsS2:0,
+    breakageS1:0, breakageS2:0,
+    idcardS1:0, idcardS2:0,
+  };
+}
+const CATEGORIES = ['tuition','registration','exam','activity','uniform','library','pta','computer','sports','breakage','idcard'];
+const CATEGORY_LABELS = {tuition:'Tuition', registration:'Registration', exam:'Exam Fee', activity:'Activity Fee', uniform:'Uniform Fee', library:'Library Fee', pta:'PTA Fee', computer:'Computer Fee', sports:'Sports Fee', breakage:'Breakage Fee', idcard:'ID Card Fee'};
+const DEFAULT_FEES = {
+  ABC: mkFees(800,800,300,200,150,250,100),
+  K1:  mkFees(900,900,300,200,150,250,100),
+  K2:  mkFees(950,950,350,200,150,250,100),
+  G1:  mkFees(1000,1000,350,250,200,300,150),
+  G2:  mkFees(1000,1000,350,250,200,300,150),
+  G3:  mkFees(1050,1050,350,250,200,300,150),
+  G4:  mkFees(1050,1050,350,250,200,300,150),
+  G5:  mkFees(1100,1100,400,300,200,350,150),
+  G6:  mkFees(1100,1100,400,300,200,350,150),
+  G7:  mkFees(1500,1500,500,400,250,400,200),
+  G8:  mkFees(1500,1500,500,400,250,400,200),
+  G9:  mkFees(1600,1600,500,400,250,400,200),
+  G10: mkFees(1600,1600,500,500,250,400,200),
+  G11: mkFees(1800,1800,600,500,300,450,200),
+  G12: mkFees(2000,2000,600,600,300,450,200),
+};
+const DEFAULT_SCHOOL_INFO = {name:'', county:'', year:'2025/2026', principal:'', bursar:'', activated:''};
+const DEFAULT_TAX_BRACKETS = [
+  {min:0, max:5000, rate:0},
+  {min:5000, max:15000, rate:5},
+  {min:15000, max:null, rate:10},
+];
+const GRADE_COLS_S1 = [['p1','P1'],['p2','P2'],['p3','P3'],['examS1','Exam']];
+const GRADE_COLS_S2 = [['p4','P4'],['p5','P5'],['p6','P6'],['examS2','Exam']];
+const RANK_PERIODS = [['p1','Period 1'],['p2','Period 2'],['p3','Period 3'],['examS1','Semester 1 Exam'],['avgS1','Semester 1 Average'],
+  ['p4','Period 4'],['p5','Period 5'],['p6','Period 6'],['examS2','Semester 2 Exam'],['avgS2','Semester 2 Average'],['overall','Overall Average']];
+
+const ROLES = {
+  admin:  {label:'Admin',            can:{manageUsers:true,  editFees:true,  manageStudents:true, submitPayment:true, approvePayments:true, deletePayments:true, manageGrades:true, manageTeachers:true}},
+  bursar: {label:'Bursar / Cashier', can:{manageUsers:false, editFees:false, manageStudents:true, submitPayment:true, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false}},
+  viewer: {label:'Viewer',            can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false}},
+};
+function can(perm){ return !!(STATE.currentUser && ROLES[STATE.currentUser.role] && ROLES[STATE.currentUser.role].can[perm]); }
+
+let STATE = {
+  loaded:false,
+  currentUser:null,
+  authMode:'login',
+  authError:'', authOk:'',
+  schoolInfo:{...DEFAULT_SCHOOL_INFO},
+  fees: JSON.parse(JSON.stringify(DEFAULT_FEES)),
+  students:[], log:[], users:[], grades:[],
+  teachers:[], teacherPayments:[], taxBrackets: JSON.parse(JSON.stringify(DEFAULT_TAX_BRACKETS)),
+  receiptCounter:1,
+  view:'dashboard',
+  dashboardClass:'ALL',
+  studentsFilter:{classCode:'ALL', status:'ALL', type:'ALL', q:''},
+  logTab:'posted',
+  gradesClass: CLASS_DEFS[0].code,
+  gradesTab:'report',
+  rankClass: CLASS_DEFS[0].code,
+  rankPeriod: 'avgS1',
+  teachersTab:'profiles',
+};
+
+/* ============================= ROW <-> APP MAPPING ============================= */
+function studentFromRow(r){
+  return {id:r.id, name:r.name, classCode:r.class_code, gender:r.gender, age:r.age, parent:r.parent, contact:r.contact,
+    enrollDate:r.enroll_date, status:r.status, studentType:r.student_type||'New',
+    s1Paid:Number(r.s1_paid)||0, s1Date:r.s1_date, s1Receipt:r.s1_receipt,
+    s2Paid:Number(r.s2_paid)||0, s2Date:r.s2_date, s2Receipt:r.s2_receipt};
+}
+function studentToRow(s){
+  return {id:s.id, name:s.name, class_code:s.classCode, gender:s.gender||null, age:s.age?String(s.age):null,
+    parent:s.parent||null, contact:s.contact||null, enroll_date:s.enrollDate||null, status:s.status||'Active',
+    student_type:s.studentType||'New',
+    s1_paid:Number(s.s1Paid)||0, s1_date:s.s1Date||null, s1_receipt:s.s1Receipt||null,
+    s2_paid:Number(s.s2Paid)||0, s2_date:s.s2Date||null, s2_receipt:s.s2Receipt||null};
+}
+function logFromRow(r){
+  return {logId:r.log_id, date:r.date, studentId:r.student_id, name:r.name, classCode:r.class_code, semester:r.semester,
+    amount:Number(r.amount), method:r.method, receipt:r.receipt, status:r.status,
+    submittedBy:r.submitted_by, submittedByName:r.submitted_by_name, submittedAt:r.submitted_at,
+    reviewedBy:r.reviewed_by, reviewedByName:r.reviewed_by_name, reviewedAt:r.reviewed_at, reviewNote:r.review_note,
+    deletedBy:r.deleted_by, deletedByName:r.deleted_by_name, deletedAt:r.deleted_at, deleteNote:r.delete_note};
+}
+function logToRow(l){
+  return {log_id:l.logId, date:l.date, student_id:l.studentId, name:l.name, class_code:l.classCode, semester:String(l.semester),
+    amount:l.amount, method:l.method||null, receipt:l.receipt||null, status:l.status,
+    submitted_by:l.submittedBy||null, submitted_by_name:l.submittedByName||null, submitted_at:l.submittedAt||null,
+    reviewed_by:l.reviewedBy||null, reviewed_by_name:l.reviewedByName||null, reviewed_at:l.reviewedAt||null, review_note:l.reviewNote||null,
+    deleted_by:l.deletedBy||null, deleted_by_name:l.deletedByName||null, deleted_at:l.deletedAt||null, delete_note:l.deleteNote||null};
+}
+function gradeFromRow(r){
+  return {id:r.id, studentId:r.student_id, subject:r.subject,
+    p1:r.p1, p2:r.p2, p3:r.p3, examS1:r.exam_s1,
+    p4:r.p4, p5:r.p5, p6:r.p6, examS2:r.exam_s2,
+    remarks:r.remarks, updatedByName:r.updated_by_name, updatedAt:r.updated_at};
+}
+function gradeToRow(g){
+  return {id:g.id, student_id:g.studentId, subject:g.subject,
+    p1:numOrNull(g.p1), p2:numOrNull(g.p2), p3:numOrNull(g.p3), exam_s1:numOrNull(g.examS1),
+    p4:numOrNull(g.p4), p5:numOrNull(g.p5), p6:numOrNull(g.p6), exam_s2:numOrNull(g.examS2),
+    remarks:g.remarks||null, updated_by:g.updatedBy||null, updated_by_name:g.updatedByName||null, updated_at:g.updatedAt||new Date().toISOString()};
+}
+function numOrNull(v){ return (v===''||v===null||v===undefined) ? null : Number(v); }
+function gradeAvg(g, part){
+  const keys = part==='s1' ? ['p1','p2','p3','examS1'] : ['p4','p5','p6','examS2'];
+  const vals = keys.map(k=>g[k]).filter(v=>v!==null && v!==undefined && v!=='');
+  return vals.length ? vals.reduce((a,v)=>a+Number(v),0)/vals.length : null;
+}
+function teacherFromRow(r){
+  return {id:r.id, name:r.name, contact:r.contact, email:r.email, subjects:r.subjects||'', classes:r.classes||'',
+    hireDate:r.hire_date, status:r.status||'Active', baseSalary:Number(r.base_salary)||0};
+}
+function teacherToRow(t){
+  return {id:t.id, name:t.name, contact:t.contact||null, email:t.email||null, subjects:t.subjects||'', classes:t.classes||'',
+    hire_date:t.hireDate||null, status:t.status||'Active', base_salary:Number(t.baseSalary)||0};
+}
+function paymentFromRow(r){
+  return {id:r.id, teacherId:r.teacher_id, teacherName:r.teacher_name, month:r.month, gross:Number(r.gross)||0,
+    tax:Number(r.tax)||0, deductions:r.deductions||[], net:Number(r.net)||0, paidDate:r.paid_date,
+    paidByName:r.paid_by_name, createdAt:r.created_at};
+}
+function paymentToRow(p){
+  return {id:p.id, teacher_id:p.teacherId, teacher_name:p.teacherName, month:p.month, gross:p.gross,
+    tax:p.tax, deductions:p.deductions||[], net:p.net, paid_date:p.paidDate||null,
+    paid_by:p.paidBy||null, paid_by_name:p.paidByName||null};
+}
+function computeTax(gross){
+  const g = Number(gross)||0;
+  let tax = 0;
+  (STATE.taxBrackets||[]).forEach(b=>{
+    const lo = Number(b.min)||0;
+    const hi = (b.max===null || b.max===undefined || b.max==='') ? Infinity : Number(b.max);
+    if(g>lo){ const amountInBracket = Math.min(g,hi)-lo; if(amountInBracket>0) tax += amountInBracket * (Number(b.rate)||0)/100; }
+  });
+  return Math.round(tax*100)/100;
+}
+
+/* ============================= AUTH + DATA LOADING ============================= */
+async function initAuth(){
+  if(!CONFIGURED){ STATE.loaded = true; render(); return; }
+  const {data:{session}} = await sb.auth.getSession();
+  if(session){ await loadProfileAndData(session.user); }
+  else { STATE.loaded = true; render(); }
+  sb.auth.onAuthStateChange(async (event, session)=>{
+    if(event==='SIGNED_OUT'){ STATE.currentUser=null; STATE.loaded=true; render(); }
+  });
+}
+async function loadProfileAndData(user){
+  const {data:profile, error} = await sb.from('profiles').select('*').eq('id',user.id).single();
+  if(error || !profile){ STATE.authError='Could not load your profile. Please try signing in again.'; await sb.auth.signOut(); STATE.loaded=true; render(); return; }
+  STATE.currentUser = {id:user.id, email:user.email, fullName:profile.full_name||user.email, role:profile.role};
+  await loadAllData();
+  STATE.loaded = true;
+  render();
+}
+async function loadAllData(){
+  const [cfgRes, studentsRes, logRes, profilesRes] = await Promise.all([
+    sb.from('school_config').select('*').eq('id',1).single(),
+    sb.from('students').select('*').order('id'),
+    sb.from('payment_log').select('*').order('submitted_at'),
+    sb.from('profiles').select('*').order('created_at'),
+  ]);
+  if(cfgRes.data){
+    STATE.schoolInfo = {...DEFAULT_SCHOOL_INFO, ...(cfgRes.data.school_info||{})};
+    const savedFees = (cfgRes.data.fees && Object.keys(cfgRes.data.fees).length) ? cfgRes.data.fees : {};
+    STATE.fees = {};
+    CLASS_DEFS.forEach(c=>{ STATE.fees[c.code] = {...DEFAULT_FEES[c.code], ...(savedFees[c.code]||{})}; });
+    STATE.receiptCounter = Number(cfgRes.data.receipt_counter)||1;
+    STATE.taxBrackets = (cfgRes.data.tax_brackets && cfgRes.data.tax_brackets.length) ? cfgRes.data.tax_brackets : JSON.parse(JSON.stringify(DEFAULT_TAX_BRACKETS));
+  }
+  STATE.students = (studentsRes.data||[]).map(studentFromRow);
+  STATE.log = (logRes.data||[]).map(logFromRow);
+  STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, createdAt:r.created_at}));
+  if(can('manageGrades')){
+    const {data:gradesData} = await sb.from('grades').select('*').order('subject');
+    STATE.grades = (gradesData||[]).map(gradeFromRow);
+  }
+  if(can('manageTeachers')){
+    const [teachersRes, payRes] = await Promise.all([
+      sb.from('teachers').select('*').order('name'),
+      sb.from('teacher_payments').select('*').order('month', {ascending:false}),
+    ]);
+    STATE.teachers = (teachersRes.data||[]).map(teacherFromRow);
+    STATE.teacherPayments = (payRes.data||[]).map(paymentFromRow);
+  }
+}
+async function refreshStudentsAndLog(){
+  const [studentsRes, logRes] = await Promise.all([
+    sb.from('students').select('*').order('id'),
+    sb.from('payment_log').select('*').order('submitted_at'),
+  ]);
+  STATE.students = (studentsRes.data||[]).map(studentFromRow);
+  STATE.log = (logRes.data||[]).map(logFromRow);
+}
+
+async function doSignup(name, email, password){
+  const {data, error} = await sb.auth.signUp({email, password, options:{data:{full_name:name}}});
+  if(error){ STATE.authError = error.message; STATE.authOk=''; renderAuth(); return; }
+  if(data.session){ await loadProfileAndData(data.user); render(); }
+  else {
+    STATE.authError=''; STATE.authOk='Account created. Check your email to confirm it, then sign in below.';
+    STATE.authMode='login'; renderAuth();
+  }
+}
+async function doLogin(email, password){
+  const {data, error} = await sb.auth.signInWithPassword({email, password});
+  if(error){ STATE.authError = error.message; STATE.authOk=''; renderAuth(); return; }
+  STATE.authError='';
+  await loadProfileAndData(data.user);
+  render();
+}
+async function logout(){ await sb.auth.signOut(); }
+
+/* ============================= FINANCE LOGIC ============================= */
+function calcDue(feeRow){
+  const f = feeRow || {};
+  let s1Base = 0, s2Base = 0;
+  CATEGORIES.forEach(cat=>{ s1Base += Number(f[cat+'S1'])||0; s2Base += Number(f[cat+'S2'])||0; });
+  return {s1Base, s2Base};
+}
+function calcFinance(student){
+  const feeRow = STATE.fees[student.classCode] || DEFAULT_FEES[student.classCode];
+  const {s1Base, s2Base} = calcDue(feeRow);
+  const s1Paid = Number(student.s1Paid)||0;
+  const s2Paid = Number(student.s2Paid)||0;
+  const s1Bal = Math.max(0, s1Base - s1Paid);
+  const overpay = Math.max(0, s1Paid - s1Base);
+  const s2Due = Math.max(0, s2Base - overpay);
+  const s2Bal = Math.max(0, s2Due - s2Paid);
+  let status;
+  if(s1Bal===0 && s2Bal===0) status='paid';
+  else if(s1Paid>0 || s2Paid>0) status='partial';
+  else status='outstanding';
+  return {s1Due:s1Base, s1Paid, s1Bal, s2Due, s2Paid, s2Bal, status, totalDue:s1Base+s2Base, totalPaid:s1Paid+s2Paid, totalBal:s1Bal+s2Bal};
+}
+function fmt(n){ return 'L$' + (Math.round((n||0)*100)/100).toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:2}); }
+function fmtDT(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  return d.toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'}) + ' ' + d.toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit'});
+}
+function nextStudentId(classCode){
+  const nums = STATE.students.filter(s=>s.classCode===classCode).map(s=>{ const m=s.id.match(/-(\d+)$/); return m?parseInt(m[1],10):0; });
+  const next = (nums.length? Math.max(...nums):0) + 1;
+  return `SCH-${classCode}-${String(next).padStart(3,'0')}`;
+}
+function pendingAmountFor(studentId){
+  return STATE.log.filter(l=>l.studentId===studentId && l.status==='pending').reduce((a,l)=>a+l.amount,0);
+}
+
+/* ============================= UI HELPERS ============================= */
+function toast(msg){
+  let el = document.getElementById('toastEl'); if(el) el.remove();
+  el = document.createElement('div'); el.id='toastEl'; el.className='toast'; el.textContent=msg;
+  document.body.appendChild(el); setTimeout(()=>el.remove(), 2600);
+}
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function badge(status){
+  const map = {paid:['✅ FULLY PAID','paid'], partial:['⚠️ PARTIAL','partial'], outstanding:['❌ OUTSTANDING','outstanding']};
+  const [txt, cls] = map[status]; return `<span class="stamp ${cls}">${txt}</span>`;
+}
+let modalRoot = null;
+function closeModal(){ if(modalRoot){ modalRoot.remove(); modalRoot=null; } }
+function openModal(html, extraClass){
+  closeModal();
+  modalRoot = document.createElement('div'); modalRoot.className='overlay';
+  modalRoot.innerHTML = `<div class="modal${extraClass?(' '+extraClass):''}">${html}</div>`;
+  modalRoot.addEventListener('mousedown', (e)=>{ if(e.target===modalRoot) closeModal(); });
+  document.body.appendChild(modalRoot);
+}
+function openReasonModal(title, hint, submitLabel, onSubmit){
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>${esc(title)}</h3>
+    <p class="mhint">${esc(hint)}</p>
+    <div class="field"><label>Reason / note (required)</label><textarea id="reasonTxt" placeholder="Explain what happened…"></textarea></div>
+    <div class="modal-actions">
+      <button class="btn ghost" data-close>Cancel</button>
+      <button class="btn danger" id="reasonSubmit">${esc(submitLabel)}</button>
+    </div>`);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#reasonSubmit').onclick = ()=>{
+    const val = modalRoot.querySelector('#reasonTxt').value.trim();
+    if(!val){ toast('A reason is required'); return; }
+    onSubmit(val);
+  };
+}
+
+/* ============================= SETUP-REQUIRED SCREEN ============================= */
+function renderSetupRequired(){
+  const root = document.getElementById('root');
+  root.innerHTML = `
+    <div class="setup-screen"><div class="setup-card">
+      <h2>★ Connect your database</h2>
+      <p>This app needs its Supabase project URL and anon key before it can run. Open <code>school_fee_system.html</code>,
+      find the two lines near the top of the script that say:</p>
+      <p><code>const SUPABASE_URL = "https://miymfafhpbkzdmanfxjr.supabase.co";</code><br>
+      <code>const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im1peW1mYWZocGJremRtYW5meGpyIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU0NzM0MDUsImV4cCI6MjEwMTA0OTQwNX0.woqpXYX2UZu5NZBNPaJSRgWG-ERg5AX3s-uJYNk5M-Y";</code></p>
+      <p>Replace the placeholders with the values from your Supabase project (Project Settings → API), save the file,
+      and re-upload it wherever you're hosting it. Then refresh this page.</p>
+    </div></div>`;
+}
+
+/* ============================= AUTH SCREENS ============================= */
+function renderAuth(){
+  const root = document.getElementById('root');
+  root.innerHTML = `
+    <div class="auth-wrap"><div class="auth-card">
+      <div class="auth-brand"><span class="star">★</span><h1>${esc(STATE.schoolInfo.name)||'School Fee Ledger'}</h1></div>
+      <p class="sub">Sign in to continue, or create an account.</p>
+      <div class="auth-tabs">
+        <button class="auth-tab ${STATE.authMode==='login'?'active':''}" data-mode="login">Sign In</button>
+        <button class="auth-tab ${STATE.authMode==='signup'?'active':''}" data-mode="signup">Create Account</button>
+      </div>
+      ${STATE.authError? `<div class="auth-err">${esc(STATE.authError)}</div>`:''}
+      ${STATE.authOk? `<div class="auth-ok">${esc(STATE.authOk)}</div>`:''}
+      ${STATE.authMode==='signup' ? `
+        <div class="auth-note">New accounts start as <strong>Viewer</strong> (read-only). Ask an Admin to promote you to Bursar or Admin from the Users page once you've signed up.</div>
+        <div class="field"><label>Full Name</label><input type="text" id="suName"></div>
+        <div class="field"><label>Email</label><input type="email" id="suEmail"></div>
+        <div class="field"><label>Password</label><input type="password" id="suPass" placeholder="At least 6 characters"></div>
+        <button class="btn gold" style="width:100%;" id="suSubmit">Create Account</button>
+      ` : `
+        <div class="field"><label>Email</label><input type="email" id="liEmail"></div>
+        <div class="field"><label>Password</label><input type="password" id="liPass"></div>
+        <button class="btn gold" style="width:100%;" id="liSubmit">Sign In</button>
+      `}
+    </div></div>`;
+  root.querySelectorAll('[data-mode]').forEach(b=> b.onclick = ()=>{ STATE.authMode=b.dataset.mode; STATE.authError=''; STATE.authOk=''; renderAuth(); });
+  if(STATE.authMode==='signup'){
+    document.getElementById('suSubmit').onclick = ()=>{
+      const name = document.getElementById('suName').value.trim();
+      const email = document.getElementById('suEmail').value.trim();
+      const pass = document.getElementById('suPass').value;
+      if(!name||!email||!pass){ STATE.authError='Please fill in every field.'; renderAuth(); return; }
+      if(pass.length<6){ STATE.authError='Password must be at least 6 characters.'; renderAuth(); return; }
+      doSignup(name, email, pass);
+    };
+  } else {
+    const doIt = ()=>{
+      const email = document.getElementById('liEmail').value.trim();
+      const pass = document.getElementById('liPass').value;
+      if(!email||!pass){ STATE.authError='Please enter your email and password.'; renderAuth(); return; }
+      doLogin(email, pass);
+    };
+    document.getElementById('liSubmit').onclick = doIt;
+    document.getElementById('liPass').addEventListener('keydown', e=>{ if(e.key==='Enter') doIt(); });
+  }
+}
+
+/* ============================= RENDER: SHELL ============================= */
+function render(){
+  const root = document.getElementById('root');
+  if(!CONFIGURED){ renderSetupRequired(); return; }
+  if(!STATE.loaded){ root.innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#5B5F6A;">Loading ledger…</div>`; return; }
+  if(!STATE.currentUser){ renderAuth(); return; }
+
+  root.innerHTML = `<div class="app" id="appRoot"></div>`;
+  const app = document.getElementById('appRoot');
+
+  const pendingCount = STATE.log.filter(l=>l.status==='pending').length;
+  const navItems = [
+    ['dashboard','◆','Dashboard', null],
+    can('editFees') ? ['fees','₤','Fee Structure', null] : null,
+    ['students','☰','Students', null],
+    (can('approvePayments')||can('submitPayment')) ? ['approvals','⏳','Approvals', pendingCount||null] : null,
+    ['log','✎','Payment Log', null],
+    can('manageGrades') ? ['grades','◈','Grades', null] : null,
+    can('manageTeachers') ? ['teachers','🎓','Teachers', null] : null,
+    can('manageUsers') ? ['users','◍','Users', null] : null,
+  ].filter(Boolean);
+
+  app.innerHTML = `
+    <div class="side">
+      <div class="brand">
+        <div class="brand-star">★</div>
+        <div class="brand-text"><h1>${esc(STATE.schoolInfo.name) || 'Your School Name'}</h1><span>Fee Ledger · LRD</span></div>
+      </div>
+      <nav>
+        ${navItems.map(([id,ic,label,badgeN])=>`
+          <button class="navbtn ${STATE.view===id?'active':''}" data-nav="${id}">
+            <span class="ic">${ic}</span>${label}${badgeN? `<span class="navbadge">${badgeN}</span>`:''}
+          </button>`).join('')}
+      </nav>
+      <div class="side-foot">
+        <div class="who">${esc(STATE.currentUser.fullName)}</div>
+        <div class="role">${esc(ROLES[STATE.currentUser.role].label)}</div>
+        <div class="yr">AY ${esc(STATE.schoolInfo.year)}</div>
+        <button data-action="settings">School Info</button>
+        <button data-action="logout">Log Out</button>
+      </div>
+    </div>
+    <div class="main" id="mainArea"></div>
+  `;
+  app.querySelectorAll('[data-nav]').forEach(b=>{ b.onclick = ()=>{ STATE.view=b.dataset.nav; render(); }; });
+  app.querySelector('[data-action="settings"]').onclick = openSchoolInfoModal;
+  app.querySelector('[data-action="logout"]').onclick = logout;
+
+  const main = document.getElementById('mainArea');
+  if(STATE.view==='dashboard') renderDashboard(main);
+  else if(STATE.view==='fees' && can('editFees')) renderFees(main);
+  else if(STATE.view==='students') renderStudents(main);
+  else if(STATE.view==='approvals' && (can('approvePayments')||can('submitPayment'))) renderApprovals(main);
+  else if(STATE.view==='log') renderLog(main);
+  else if(STATE.view==='grades' && can('manageGrades')) renderGrades(main);
+  else if(STATE.view==='teachers' && can('manageTeachers')) renderTeachers(main);
+  else if(STATE.view==='users' && can('manageUsers')) renderUsers(main);
+  else { STATE.view='dashboard'; renderDashboard(main); }
+}
+
+/* ============================= DASHBOARD ============================= */
+function renderDashboard(main){
+  const selClass = STATE.dashboardClass;
+  const scoped = selClass==='ALL' ? STATE.students : STATE.students.filter(s=>s.classCode===selClass);
+  const finances = scoped.map(calcFinance);
+  const totalStudents = scoped.length;
+  const activeStudents = scoped.filter(s=>s.status!=='Inactive').length;
+  const totalCollected = finances.reduce((a,f)=>a+f.totalPaid,0);
+  const totalOutstanding = finances.reduce((a,f)=>a+f.totalBal,0);
+  const totalExpected = finances.reduce((a,f)=>a+f.totalDue,0);
+  const fullyPaid = finances.filter(f=>f.status==='paid').length;
+  const pendingCount = STATE.log.filter(l=>l.status==='pending' && (selClass==='ALL'||l.classCode===selClass)).length;
+  const pendingSum = STATE.log.filter(l=>l.status==='pending' && (selClass==='ALL'||l.classCode===selClass)).reduce((a,l)=>a+l.amount,0);
+
+  const byClass = CLASS_DEFS.map(c=>{
+    const list = STATE.students.filter(s=>s.classCode===c.code);
+    const fin = list.map(calcFinance);
+    const due = fin.reduce((a,f)=>a+f.totalDue,0), paid = fin.reduce((a,f)=>a+f.totalPaid,0);
+    return {...c, count:list.length, due, paid, pct: due>0? Math.round(paid/due*100):0};
+  }).filter(c=>c.count>0);
+
+  const recentPosted = STATE.log.filter(l=>l.status==='approved' && (selClass==='ALL'||l.classCode===selClass));
+
+  main.innerHTML = `
+    <div class="topline">
+      <div><h2>Dashboard</h2><p>${esc(STATE.schoolInfo.name)||'School'} · ${esc(STATE.schoolInfo.county)||'County'} · Academic Year ${esc(STATE.schoolInfo.year)}</p></div>
+      <div class="topline-actions">
+        <select id="dashClass">
+          <option value="ALL" ${selClass==='ALL'?'selected':''}>All classes</option>
+          ${CLASS_DEFS.map(c=>`<option value="${c.code}" ${selClass===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}
+        </select>
+        ${can('manageStudents')? `<button class="btn" data-action="add-student">+ Add Student</button>`:''}
+      </div>
+    </div>
+    <div class="stat-row">
+      <div class="stat"><div class="label">${selClass==='ALL'?'Total Students':'Students in class'}</div><div class="value">${totalStudents}</div><div class="sub">${activeStudents} active</div></div>
+      <div class="stat"><div class="label">Collected (posted)</div><div class="value" style="color:var(--green)">${fmt(totalCollected)}</div><div class="sub">of ${fmt(totalExpected)} expected</div></div>
+      <div class="stat"><div class="label">Outstanding</div><div class="value" style="color:var(--red)">${fmt(totalOutstanding)}</div><div class="sub">${selClass==='ALL'?'across all classes':CLASS_LABEL[selClass]}</div></div>
+      <div class="stat"><div class="label">Awaiting Approval</div><div class="value" style="color:var(--blue)">${pendingCount}</div><div class="sub">${fmt(pendingSum)} pending review</div></div>
+    </div>
+    ${selClass==='ALL' ? `
+    <div class="panel" style="overflow-x:auto;"><h3>Total to collect — by class</h3>
+      ${byClass.length===0? `<p class="muted" style="font-size:13px;">No students enrolled yet.</p>` : `
+      <table><thead><tr><th>Class</th><th class="tright">Students</th><th class="tright">Total Due</th><th class="tright">Total Collected</th><th class="tright">Balance</th><th class="tright">% Collected</th></tr></thead>
+        <tbody>${byClass.map(c=>`<tr><td><strong>${esc(c.label)}</strong></td><td class="tright">${c.count}</td><td class="tright mono">${fmt(c.due)}</td><td class="tright mono" style="color:var(--green)">${fmt(c.paid)}</td><td class="tright mono" style="color:var(--red)">${fmt(c.due-c.paid)}</td><td class="tright">${c.pct}%</td></tr>`).join('')}
+        <tr style="border-top:2px solid var(--line);font-weight:700;"><td>Total — all classes</td><td class="tright">${byClass.reduce((a,c)=>a+c.count,0)}</td><td class="tright mono">${fmt(byClass.reduce((a,c)=>a+c.due,0))}</td><td class="tright mono" style="color:var(--green)">${fmt(byClass.reduce((a,c)=>a+c.paid,0))}</td><td class="tright mono" style="color:var(--red)">${fmt(byClass.reduce((a,c)=>a+c.due-c.paid,0))}</td><td class="tright">${byClass.reduce((a,c)=>a+c.due,0)>0? Math.round(byClass.reduce((a,c)=>a+c.paid,0)/byClass.reduce((a,c)=>a+c.due,0)*100):0}%</td></tr>
+        </tbody></table>`}
+    </div>` : `
+    <div class="panel" style="overflow-x:auto;"><h3>${esc(CLASS_LABEL[selClass])} — student balances</h3>
+      ${scoped.length===0? `<p class="muted" style="font-size:13px;">No students in this class yet.</p>` : `
+      <table><thead><tr><th>ID</th><th>Name</th><th class="tright">S1 Bal</th><th class="tright">S2 Bal</th><th>Status</th></tr></thead>
+        <tbody>${scoped.slice().sort((a,b)=> calcFinance(b).totalBal - calcFinance(a).totalBal).map(s=>{
+          const fin = calcFinance(s);
+          return `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.name)}</td><td class="tright mono">${fmt(fin.s1Bal)}</td><td class="tright mono">${fmt(fin.s2Bal)}</td><td>${badge(fin.status)}</td></tr>`;
+        }).join('')}</tbody></table>`}
+    </div>`}
+    <div class="panel"><h3>Recent posted payments</h3>
+      ${recentPosted.length===0? `<p class="muted" style="font-size:13px;">No approved payments yet.</p>` : `
+      <table><thead><tr><th>Date</th><th>Student</th><th>Class</th><th>Sem.</th><th class="tright">Amount</th><th>Receipt</th></tr></thead>
+        <tbody>${[...recentPosted].slice(-6).reverse().map(l=>`
+          <tr><td class="mono">${esc(l.date)}</td><td>${esc(l.name)||esc(l.studentId)}</td><td class="muted">${esc(CLASS_LABEL[l.classCode]||l.classCode)}</td><td>S${l.semester}</td><td class="tright mono">${fmt(l.amount)}</td><td class="mono muted">${esc(l.receipt)||'—'}</td></tr>`).join('')}
+        </tbody></table>`}
+    </div>
+  `;
+  main.querySelector('#dashClass').onchange = e=>{ STATE.dashboardClass = e.target.value; render(); };
+  const addBtn = main.querySelector('[data-action="add-student"]');
+  if(addBtn) addBtn.onclick = ()=>openStudentModal(null);
+}
+
+/* ============================= FEE STRUCTURE ============================= */
+function renderFees(main){
+  main.innerHTML = `
+    <div class="topline"><div><h2>Fee Structure</h2><p>Every fee category has its own Semester 1 and Semester 2 amount. Amounts in LRD.</p></div></div>
+    <div class="panel" style="overflow-x:auto;">
+      <table><thead>
+        <tr><th rowspan="2" style="vertical-align:bottom;">Class</th><th colspan="${CATEGORIES.length}" class="tcenter" style="border-bottom:2px solid var(--navy);">Semester 1</th><th colspan="${CATEGORIES.length}" class="tcenter" style="border-bottom:2px solid var(--navy);">Semester 2</th><th rowspan="2" class="tright" style="vertical-align:bottom;">S1 Total</th><th rowspan="2" class="tright" style="vertical-align:bottom;">S2 Total</th><th rowspan="2" class="tright" style="vertical-align:bottom;">Overall</th></tr>
+        <tr>${CATEGORIES.map(cat=>`<th class="tright">${CATEGORY_LABELS[cat]}</th>`).join('')}${CATEGORIES.map(cat=>`<th class="tright">${CATEGORY_LABELS[cat]}</th>`).join('')}</tr>
+      </thead>
+        <tbody>${CLASS_DEFS.map(c=>{
+          const f = STATE.fees[c.code]; const {s1Base, s2Base} = calcDue(f);
+          return `<tr><td><strong>${esc(c.label)}</strong></td>
+            ${CATEGORIES.map(cat=>`<td class="tright"><input type="number" min="0" data-fee="${c.code}" data-field="${cat}S1" value="${f[cat+'S1']||0}" style="width:64px;text-align:right;"></td>`).join('')}
+            ${CATEGORIES.map(cat=>`<td class="tright"><input type="number" min="0" data-fee="${c.code}" data-field="${cat}S2" value="${f[cat+'S2']||0}" style="width:64px;text-align:right;"></td>`).join('')}
+            <td class="tright mono" style="font-weight:600;">${fmt(s1Base)}</td><td class="tright mono" style="font-weight:600;">${fmt(s2Base)}</td><td class="tright mono" style="font-weight:700;color:var(--navy);">${fmt(s1Base+s2Base)}</td></tr>`;
+        }).join('')}
+        </tbody>
+        <tfoot>${(()=>{
+          let sumS1=0, sumS2=0;
+          CLASS_DEFS.forEach(c=>{ const d=calcDue(STATE.fees[c.code]); sumS1+=d.s1Base; sumS2+=d.s2Base; });
+          return `<tr style="border-top:2px solid var(--navy);font-weight:700;"><td colspan="${1+CATEGORIES.length*2}">Total collectible — all classes</td><td class="tright mono">${fmt(sumS1)}</td><td class="tright mono">${fmt(sumS2)}</td><td class="tright mono">${fmt(sumS1+sumS2)}</td></tr>`;
+        })()}</tfoot>
+      </table>
+    </div>
+    <p class="muted" style="font-size:12px;">Each category (Registration, PTA, Breakage, ID Card, etc.) now has an independent Semester 1 amount and Semester 2 amount — leave Semester 2 at 0 for anything only charged once. Overpayment in Semester 1 is automatically credited toward Semester 2.</p>
+  `;
+  main.querySelectorAll('[data-fee]').forEach(inp=>{
+    inp.onchange = async ()=>{
+      const code = inp.dataset.fee, field = inp.dataset.field;
+      STATE.fees[code][field] = Number(inp.value)||0;
+      const {error} = await sb.from('school_config').update({fees:STATE.fees}).eq('id',1);
+      if(error){ toast('Error saving: '+error.message); return; }
+      render(); toast('Fee structure updated');
+    };
+  });
+}
+
+/* ============================= STUDENTS ============================= */
+function renderStudents(main){
+  const f = STATE.studentsFilter;
+  let list = STATE.students.filter(s=>{
+    if(f.classCode!=='ALL' && s.classCode!==f.classCode) return false;
+    const fin = calcFinance(s);
+    if(f.status==='OUTSTANDING' && fin.totalBal<=0) return false;
+    if(f.status==='PAID' && fin.status!=='paid') return false;
+    if(f.status==='INACTIVE' && s.status!=='Inactive') return false;
+    if(f.type && f.type!=='ALL' && (s.studentType||'New')!==f.type) return false;
+    if(f.q){ const q=f.q.toLowerCase(); if(!(s.id.toLowerCase().includes(q) || (s.name||'').toLowerCase().includes(q))) return false; }
+    return true;
+  });
+  main.innerHTML = `
+    <div class="topline">
+      <div><h2>Students</h2><p>${STATE.students.length} student${STATE.students.length===1?'':'s'} across ${CLASS_DEFS.length} classes.</p></div>
+      ${can('manageStudents')? `<button class="btn" data-action="add-student">+ Add Student</button>`:''}
+    </div>
+    <div class="toolbar">
+      <select id="fClass"><option value="ALL">All classes</option>${CLASS_DEFS.map(c=>`<option value="${c.code}" ${f.classCode===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select>
+      <select id="fStatus">
+        <option value="ALL" ${f.status==='ALL'?'selected':''}>All statuses</option>
+        <option value="OUTSTANDING" ${f.status==='OUTSTANDING'?'selected':''}>Has balance</option>
+        <option value="PAID" ${f.status==='PAID'?'selected':''}>Fully paid</option>
+        <option value="INACTIVE" ${f.status==='INACTIVE'?'selected':''}>Inactive</option>
+      </select>
+      <select id="fType">
+        <option value="ALL" ${(f.type||'ALL')==='ALL'?'selected':''}>New & Old students</option>
+        <option value="New" ${f.type==='New'?'selected':''}>New students</option>
+        <option value="Old" ${f.type==='Old'?'selected':''}>Old / returning</option>
+      </select>
+      <input type="text" class="search" id="fSearch" placeholder="Search by name or student ID…" value="${esc(f.q)}">
+    </div>
+    <div class="panel" style="padding:0; overflow-x:auto;">
+      ${list.length===0? `<div class="empty"><div class="big">🎒</div><h4>No students match this view</h4><p style="font-size:13px;">Try clearing filters${can('manageStudents')?', or add a new student to get started.':'.'}</p></div>` : `
+      <table><thead><tr><th>ID</th><th>Name</th><th>Class</th><th>Type</th><th class="tright">S1 Due</th><th class="tright">S1 Paid</th><th class="tright">S1 Bal</th><th class="tright">S2 Due</th><th class="tright">S2 Paid</th><th class="tright">S2 Bal</th><th>Status</th><th></th></tr></thead>
+        <tbody>${list.map(s=>{
+          const fin = calcFinance(s); const pend = pendingAmountFor(s.id);
+          return `<tr>
+            <td class="mono">${esc(s.id)}</td>
+            <td>${esc(s.name)||'<span class="muted">(unnamed)</span>'} ${s.status==='Inactive'?'<span class="badge inactive" style="margin-left:6px;">inactive</span>':''}
+              ${pend>0? `<div style="font-size:10.5px;color:var(--blue);margin-top:2px;">${fmt(pend)} awaiting approval</div>`:''}
+            </td>
+            <td class="muted">${esc(CLASS_LABEL[s.classCode])}</td>
+            <td><span class="badge role">${(s.studentType||'New')==='New'?'New':'Old'}</span></td>
+            <td class="tright mono">${fmt(fin.s1Due)}</td><td class="tright mono">${fmt(fin.s1Paid)}</td>
+            <td class="tright mono" style="${fin.s1Bal>0?'color:var(--red)':''}">${fmt(fin.s1Bal)}</td>
+            <td class="tright mono">${fmt(fin.s2Due)}</td><td class="tright mono">${fmt(fin.s2Paid)}</td>
+            <td class="tright mono" style="${fin.s2Bal>0?'color:var(--red)':''}">${fmt(fin.s2Bal)}</td>
+            <td>${badge(fin.status)}</td>
+            <td>${can('submitPayment')? `<button class="btn small ghost" data-pay="${s.id}">Pay</button>`:''} ${can('manageStudents')? `<button class="btn small ghost" data-edit="${s.id}">Edit</button>`:''}</td>
+          </tr>`;
+        }).join('')}</tbody></table>`}
+    </div>
+  `;
+  const addBtn = main.querySelector('[data-action="add-student"]'); if(addBtn) addBtn.onclick = ()=>openStudentModal(null);
+  main.querySelector('#fClass').onchange = e=>{ STATE.studentsFilter.classCode = e.target.value; render(); };
+  main.querySelector('#fStatus').onchange = e=>{ STATE.studentsFilter.status = e.target.value; render(); };
+  main.querySelector('#fType').onchange = e=>{ STATE.studentsFilter.type = e.target.value; render(); };
+  const sInp = main.querySelector('#fSearch');
+  sInp.oninput = e=>{ STATE.studentsFilter.q = e.target.value; render(); const el=document.getElementById('fSearch'); el.focus(); el.selectionStart=el.selectionEnd=10000; };
+  main.querySelectorAll('[data-pay]').forEach(b=> b.onclick=()=>openPaymentModal(b.dataset.pay));
+  main.querySelectorAll('[data-edit]').forEach(b=> b.onclick=()=>openStudentModal(b.dataset.edit));
+}
+
+/* ============================= APPROVALS ============================= */
+function renderApprovals(main){
+  const pending = STATE.log.filter(l=>l.status==='pending').sort((a,b)=> new Date(a.submittedAt)-new Date(b.submittedAt));
+  main.innerHTML = `
+    <div class="topline"><div><h2>Payment Approvals</h2><p>${can('approvePayments')? 'Every payment must be reviewed before it posts to a student balance.' : 'Payments you submit wait here until an admin reviews them.'}</p></div></div>
+    <div class="panel" style="padding:0;overflow-x:auto;">
+      ${pending.length===0? `<div class="empty"><div class="big">✅</div><h4>Nothing waiting on review</h4><p style="font-size:13px;">New payment submissions will appear here.</p></div>` : `
+      <table><thead><tr><th>Submitted</th><th>Student</th><th>Class</th><th>Sem.</th><th class="tright">Amount</th><th>Method</th><th>Receipt</th><th>Submitted By</th><th></th></tr></thead>
+        <tbody>${pending.map(l=>`
+          <tr>
+            <td class="mono">${fmtDT(l.submittedAt)}</td>
+            <td>${esc(l.name)||esc(l.studentId)}<div class="muted mono" style="font-size:10.5px;">${esc(l.studentId)}</div></td>
+            <td class="muted">${esc(CLASS_LABEL[l.classCode]||l.classCode)}</td><td>S${l.semester}</td>
+            <td class="tright mono" style="font-weight:600;">${fmt(l.amount)}</td>
+            <td class="muted">${esc(l.method)||'—'}</td><td class="mono muted">${esc(l.receipt)||'—'}</td>
+            <td>${esc(l.submittedByName)}</td>
+            <td>${can('approvePayments')? `<button class="btn small" data-approve="${l.logId}">Approve</button><button class="btn small danger ghost" data-reject="${l.logId}">Reject</button>` : `<span class="badge pending">pending</span>`}</td>
+          </tr>`).join('')}</tbody></table>`}
+    </div>
+  `;
+  main.querySelectorAll('[data-approve]').forEach(b=> b.onclick=()=>approvePayment(b.dataset.approve));
+  main.querySelectorAll('[data-reject]').forEach(b=> b.onclick=()=>rejectPayment(b.dataset.reject));
+}
+
+async function approvePayment(logId){
+  const l = STATE.log.find(x=>x.logId===logId);
+  if(!l || l.status!=='pending') return;
+  const student = STATE.students.find(s=>s.id===l.studentId);
+  if(!student){ toast('Student record not found'); return; }
+  student['s'+l.semester+'Paid'] = (Number(student['s'+l.semester+'Paid'])||0) + l.amount;
+  student['s'+l.semester+'Date'] = l.date;
+  student['s'+l.semester+'Receipt'] = l.receipt;
+  l.status='approved'; l.reviewedBy=STATE.currentUser.id; l.reviewedByName=STATE.currentUser.fullName; l.reviewedAt=new Date().toISOString();
+
+  const {error:e1} = await sb.from('students').update(studentToRow(student)).eq('id', student.id);
+  const {error:e2} = await sb.from('payment_log').update(logToRow(l)).eq('log_id', logId);
+  if(e1||e2){ toast('Error approving payment: '+((e1||e2).message)); await refreshStudentsAndLog(); render(); return; }
+  render();
+  toast(`Approved — ${fmt(l.amount)} posted to ${l.name||l.studentId}`);
+}
+function rejectPayment(logId){
+  const l = STATE.log.find(x=>x.logId===logId);
+  if(!l || l.status!=='pending') return;
+  openReasonModal('Reject Payment', `${l.name||l.studentId} · ${fmt(l.amount)} · S${l.semester}. This will not post to the student balance.`, 'Reject Payment', async (reason)=>{
+    l.status='rejected'; l.reviewedBy=STATE.currentUser.id; l.reviewedByName=STATE.currentUser.fullName; l.reviewedAt=new Date().toISOString(); l.reviewNote=reason;
+    const {error} = await sb.from('payment_log').update(logToRow(l)).eq('log_id', logId);
+    if(error){ toast('Error: '+error.message); await refreshStudentsAndLog(); }
+    closeModal(); render(); toast('Payment rejected');
+  });
+}
+
+/* ============================= PAYMENT LOG ============================= */
+function renderLog(main){
+  const posted = STATE.log.filter(l=>l.status==='approved').slice().reverse();
+  const audit = STATE.log.filter(l=>l.status==='rejected'||l.status==='deleted').slice().reverse();
+  const tab = STATE.logTab;
+  main.innerHTML = `
+    <div class="topline"><div><h2>Payment Log</h2><p>The posted ledger, plus a permanent audit trail of anything rejected or deleted.</p></div><button class="btn ghost" id="exportBtn">Export CSV</button></div>
+    <div class="tabs"><button class="tab ${tab==='posted'?'active':''}" data-tab="posted">Posted (${posted.length})</button><button class="tab ${tab==='audit'?'active':''}" data-tab="audit">Audit Trail (${audit.length})</button></div>
+    <div class="panel" style="padding:0;overflow-x:auto;">
+      ${tab==='posted' ? (posted.length===0? `<div class="empty"><div class="big">📝</div><h4>No posted payments yet</h4><p style="font-size:13px;">Approved payments will appear here.</p></div>` : `
+      <table><thead><tr><th>Date</th><th>Student ID</th><th>Name</th><th>Class</th><th>Sem.</th><th class="tright">Amount</th><th>Method</th><th>Receipt</th><th>Approved By</th><th></th></tr></thead>
+        <tbody>${posted.map(l=>`
+          <tr><td class="mono">${esc(l.date)}</td><td class="mono">${esc(l.studentId)}</td><td>${esc(l.name)}</td><td class="muted">${esc(CLASS_LABEL[l.classCode]||l.classCode)}</td><td>S${l.semester}</td>
+          <td class="tright mono" style="font-weight:600;">${fmt(l.amount)}</td><td class="muted">${esc(l.method)||'—'}</td><td class="mono muted">${esc(l.receipt)||'—'}</td>
+          <td class="muted">${esc(l.reviewedByName)||'—'}</td><td>${can('deletePayments')? `<button class="btn small ghost danger" data-del="${l.logId}">Delete</button>`:''}</td></tr>`).join('')}
+        </tbody></table>`) : (audit.length===0? `<div class="empty"><div class="big">🗂️</div><h4>No rejected or deleted entries</h4><p style="font-size:13px;">Nothing removed from the ledger yet.</p></div>` : `
+      <table><thead><tr><th>Status</th><th>Student</th><th>Class</th><th>Sem.</th><th class="tright">Amount</th><th>By</th><th>When</th><th>Note</th></tr></thead>
+        <tbody>${audit.map(l=>`
+          <tr><td><span class="badge ${l.status}">${esc(l.status)}</span></td><td>${esc(l.name)||esc(l.studentId)}<div class="muted mono" style="font-size:10.5px;">${esc(l.studentId)}</div></td>
+          <td class="muted">${esc(CLASS_LABEL[l.classCode]||l.classCode)}</td><td>S${l.semester}</td><td class="tright mono">${fmt(l.amount)}</td>
+          <td class="muted">${esc(l.status==='deleted'? l.deletedByName : l.reviewedByName)||'—'}</td>
+          <td class="mono muted" style="font-size:11px;">${fmtDT(l.status==='deleted'? l.deletedAt : l.reviewedAt)}</td>
+          <td style="white-space:normal;min-width:180px;">${esc(l.status==='deleted'? l.deleteNote : l.reviewNote)||'—'}</td></tr>`).join('')}
+        </tbody></table>`)}
+    </div>
+  `;
+  main.querySelectorAll('[data-tab]').forEach(b=> b.onclick = ()=>{ STATE.logTab = b.dataset.tab; render(); });
+  main.querySelector('#exportBtn').onclick = exportLogCSV;
+  main.querySelectorAll('[data-del]').forEach(b=> b.onclick=()=>deletePostedPayment(b.dataset.del));
+}
+function exportLogCSV(){
+  const rows = [['Status','Date','Student ID','Name','Class','Semester','Amount (LRD)','Method','Receipt','Submitted By','Reviewed/Deleted By','Note']];
+  STATE.log.forEach(l=> rows.push([l.status, l.date, l.studentId, l.name, CLASS_LABEL[l.classCode]||l.classCode, 'S'+l.semester, l.amount, l.method||'', l.receipt||'', l.submittedByName||'', l.reviewedByName||l.deletedByName||'', l.reviewNote||l.deleteNote||'']));
+  const csv = rows.map(r=> r.map(v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'payment_log.csv'; a.click();
+}
+function deletePostedPayment(logId){
+  const l = STATE.log.find(x=>x.logId===logId);
+  if(!l || l.status!=='approved') return;
+  openReasonModal('Delete Posted Payment', `${l.name||l.studentId} · ${fmt(l.amount)} · S${l.semester}, posted ${fmtDT(l.reviewedAt)}. This reduces the student's paid amount and moves the entry to the Audit Trail with your note attached — it is never fully erased.`, 'Delete Payment', async (reason)=>{
+    const student = STATE.students.find(s=>s.id===l.studentId);
+    if(student){ const key='s'+l.semester+'Paid'; student[key] = Math.max(0, (Number(student[key])||0) - l.amount); }
+    l.status='deleted'; l.deletedBy=STATE.currentUser.id; l.deletedByName=STATE.currentUser.fullName; l.deletedAt=new Date().toISOString(); l.deleteNote=reason;
+    const ops = [ sb.from('payment_log').update(logToRow(l)).eq('log_id', logId) ];
+    if(student) ops.push(sb.from('students').update(studentToRow(student)).eq('id', student.id));
+    const results = await Promise.all(ops);
+    if(results.some(r=>r.error)){ toast('Error deleting payment'); await refreshStudentsAndLog(); }
+    closeModal(); render(); toast('Payment deleted — recorded in the audit trail');
+  });
+}
+
+/* ============================= USERS (admin only) ============================= */
+function renderUsers(main){
+  main.innerHTML = `
+    <div class="topline"><div><h2>Users</h2><p>Control who can access this ledger and what they're allowed to do.</p></div></div>
+    <div class="auth-note" style="margin-bottom:16px;">New people create their own account from the Sign In screen (they start as Viewer). Promote them here. Removing an account or resetting someone else's password has to be done from the Supabase dashboard (Authentication → Users), since this app doesn't hold that kind of access.</div>
+    <div class="panel" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Name</th><th>Role</th><th>Joined</th><th></th></tr></thead>
+        <tbody>${STATE.users.map(u=>`
+          <tr>
+            <td>${esc(u.fullName)} ${u.id===STATE.currentUser.id? '<span class="muted" style="font-size:11px;">(you)</span>':''}</td>
+            <td><span class="badge role">${esc(ROLES[u.role].label)}</span></td>
+            <td class="muted mono" style="font-size:11px;">${u.createdAt? fmtDT(u.createdAt):'—'}</td>
+            <td>
+              ${u.id!==STATE.currentUser.id ? `
+              <select data-role="${u.id}" style="font-size:12px;padding:5px 8px;">
+                <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
+                <option value="bursar" ${u.role==='bursar'?'selected':''}>Bursar / Cashier</option>
+                <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+              </select>` : `<span class="muted" style="font-size:11.5px;">sign in as someone else to change this</span>`}
+            </td>
+          </tr>`).join('')}</tbody></table>
+    </div>
+    <div class="panel">
+      <h3>Roles</h3>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;"><strong>Admin</strong> — manages fee structure, users, and approves or rejects every payment before it posts.</p>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;"><strong>Bursar / Cashier</strong> — adds students and submits payments, which then wait for Admin approval.</p>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0;"><strong>Viewer</strong> — read-only access to the dashboard, students, and payment log.</p>
+    </div>
+  `;
+  main.querySelectorAll('[data-role]').forEach(sel=>{
+    sel.onchange = async ()=>{
+      const userId = sel.dataset.role, role = sel.value;
+      const {error} = await sb.from('profiles').update({role}).eq('id', userId);
+      if(error){ toast('Error: '+error.message); return; }
+      const u = STATE.users.find(x=>x.id===userId); if(u) u.role=role;
+      render(); toast('Role updated');
+    };
+  });
+}
+
+/* ============================= MODALS ============================= */
+function openSchoolInfoModal(){
+  const s = STATE.schoolInfo, editable = can('editFees');
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>School Information</h3><p class="mhint">Shown across the ledger and on the dashboard.</p>
+    <div class="school-info-grid">
+      <div class="field"><label>School Name</label><input type="text" id="siName" value="${esc(s.name)}" ${editable?'':'disabled'}></div>
+      <div class="field"><label>County / Location</label><input type="text" id="siCounty" value="${esc(s.county)}" ${editable?'':'disabled'}></div>
+      <div class="field"><label>Academic Year</label><input type="text" id="siYear" value="${esc(s.year)}" ${editable?'':'disabled'}></div>
+      <div class="field"><label>Principal</label><input type="text" id="siPrincipal" value="${esc(s.principal)}" ${editable?'':'disabled'}></div>
+      <div class="field"><label>Bursar / Accountant</label><input type="text" id="siBursar" value="${esc(s.bursar)}" ${editable?'':'disabled'}></div>
+      <div class="field"><label>Date Activated</label><input type="date" id="siActivated" value="${esc(s.activated)}" ${editable?'':'disabled'}></div>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" data-close>${editable?'Cancel':'Close'}</button>${editable? `<button class="btn" id="siSave">Save</button>`:''}</div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  const saveBtn = modalRoot.querySelector('#siSave');
+  if(saveBtn) saveBtn.onclick = async ()=>{
+    STATE.schoolInfo = {
+      name: modalRoot.querySelector('#siName').value.trim(), county: modalRoot.querySelector('#siCounty').value.trim(),
+      year: modalRoot.querySelector('#siYear').value.trim(), principal: modalRoot.querySelector('#siPrincipal').value.trim(),
+      bursar: modalRoot.querySelector('#siBursar').value.trim(), activated: modalRoot.querySelector('#siActivated').value,
+    };
+    const {error} = await sb.from('school_config').update({school_info:STATE.schoolInfo}).eq('id',1);
+    if(error){ toast('Error: '+error.message); return; }
+    closeModal(); render(); toast('School information saved');
+  };
+}
+
+function openStudentModal(studentId){
+  if(!can('manageStudents')) return;
+  const editing = !!studentId;
+  const s = editing ? STATE.students.find(x=>x.id===studentId) : null;
+  const defaultClass = editing ? s.classCode : (STATE.studentsFilter.classCode!=='ALL' ? STATE.studentsFilter.classCode : CLASS_DEFS[0].code);
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>${editing? 'Edit Student' : 'Add Student'}</h3>
+    <p class="mhint">${editing? esc(s.id) : 'A student ID is generated automatically for the class you choose.'}</p>
+    <div class="field"><label>Full Name</label><input type="text" id="stName" value="${editing? esc(s.name):''}" placeholder="e.g. Comfort D. Toe"></div>
+    <div class="field2">
+      <div class="field"><label>Class</label><select id="stClass" ${editing? 'disabled':''}>${CLASS_DEFS.map(c=>`<option value="${c.code}" ${defaultClass===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div>
+      <div class="field"><label>Gender</label><select id="stGender">
+        <option value="" ${!editing || !s.gender?'selected':''}>—</option>
+        <option value="Male" ${editing&&s.gender==='Male'?'selected':''}>Male</option>
+        <option value="Female" ${editing&&s.gender==='Female'?'selected':''}>Female</option>
+      </select></div>
+    </div>
+    <div class="field2">
+      <div class="field"><label>Age</label><input type="number" id="stAge" min="0" value="${editing&&s.age? s.age:''}"></div>
+      <div class="field"><label>Status</label><select id="stStatus">
+        <option value="Active" ${!editing||s.status==='Active'?'selected':''}>Active</option>
+        <option value="Inactive" ${editing&&s.status==='Inactive'?'selected':''}>Inactive</option>
+      </select></div>
+    </div>
+    <div class="field"><label>Student Type</label><select id="stType">
+      <option value="New" ${!editing||s.studentType==='New'?'selected':''}>New Student</option>
+      <option value="Old" ${editing&&s.studentType==='Old'?'selected':''}>Old / Returning Student</option>
+    </select></div>
+    <div class="field"><label>Parent / Guardian</label><input type="text" id="stParent" value="${editing? esc(s.parent):''}"></div>
+    <div class="field"><label>Contact</label><input type="text" id="stContact" value="${editing? esc(s.contact):''}" placeholder="0770 000 000"></div>
+    <div class="field"><label>Enrollment Date</label><input type="date" id="stEnroll" value="${editing? esc(s.enrollDate):''}"></div>
+    <div class="modal-actions">
+      ${editing? `<button class="btn danger ghost" id="stDelete" style="margin-right:auto;">Delete</button>`:''}
+      <button class="btn ghost" data-close>Cancel</button>
+      <button class="btn" id="stSave">${editing?'Save Changes':'Add Student'}</button>
+    </div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  if(editing){
+    modalRoot.querySelector('#stDelete').onclick = async ()=>{
+      if(!confirm(`Remove ${s.name||s.id} from the directory? This cannot be undone.`)) return;
+      const {error} = await sb.from('students').delete().eq('id', s.id);
+      if(error){ toast('Error: '+error.message); return; }
+      STATE.students = STATE.students.filter(x=>x.id!==s.id);
+      closeModal(); render(); toast('Student removed');
+    };
+  }
+  modalRoot.querySelector('#stSave').onclick = async ()=>{
+    const name = modalRoot.querySelector('#stName').value.trim();
+    if(!name){ toast('Please enter the student name'); return; }
+    if(editing){
+      s.name = name; s.gender = modalRoot.querySelector('#stGender').value; s.age = modalRoot.querySelector('#stAge').value;
+      s.status = modalRoot.querySelector('#stStatus').value; s.studentType = modalRoot.querySelector('#stType').value;
+      s.parent = modalRoot.querySelector('#stParent').value.trim();
+      s.contact = modalRoot.querySelector('#stContact').value.trim(); s.enrollDate = modalRoot.querySelector('#stEnroll').value;
+      const {error} = await sb.from('students').update(studentToRow(s)).eq('id', s.id);
+      if(error){ toast('Error: '+error.message); return; }
+    } else {
+      const classCode = modalRoot.querySelector('#stClass').value;
+      const newStudent = {
+        id: nextStudentId(classCode), name, classCode, gender: modalRoot.querySelector('#stGender').value,
+        age: modalRoot.querySelector('#stAge').value, status: modalRoot.querySelector('#stStatus').value,
+        studentType: modalRoot.querySelector('#stType').value,
+        parent: modalRoot.querySelector('#stParent').value.trim(), contact: modalRoot.querySelector('#stContact').value.trim(),
+        enrollDate: modalRoot.querySelector('#stEnroll').value, s1Paid:0, s1Date:'', s1Receipt:'', s2Paid:0, s2Date:'', s2Receipt:'',
+      };
+      const {error} = await sb.from('students').insert(studentToRow(newStudent));
+      if(error){ toast('Error: '+error.message); return; }
+      STATE.students.push(newStudent);
+    }
+    closeModal(); render(); toast(editing? 'Student updated' : 'Student added');
+  };
+}
+
+function openPaymentModal(studentId){
+  if(!can('submitPayment')) return;
+  const s = STATE.students.find(x=>x.id===studentId);
+  if(!s) return;
+  const fin = calcFinance(s);
+  const receiptNo = 'RCT-' + String(STATE.receiptCounter||1).padStart(6,'0');
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>Record Payment</h3>
+    <p class="mhint">${esc(s.name)||esc(s.id)} · ${esc(CLASS_LABEL[s.classCode])} · S1 balance ${fmt(fin.s1Bal)} · S2 balance ${fmt(fin.s2Bal)}</p>
+    <div class="note-box">This payment will be sent for review and won't affect the student's balance until an Admin approves it.</div>
+    <div class="field" style="margin-top:12px;"><label>Semester</label><select id="pSem"><option value="1">Semester 1 (balance ${fmt(fin.s1Bal)})</option><option value="2">Semester 2 (balance ${fmt(fin.s2Bal)})</option></select></div>
+    <div class="field2">
+      <div class="field"><label>Amount (LRD)</label><input type="number" id="pAmount" min="0" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Date</label><input type="date" id="pDate" value="${new Date().toISOString().slice(0,10)}"></div>
+    </div>
+    <div class="field2">
+      <div class="field"><label>Receipt No. (auto-generated)</label><input type="text" id="pReceipt" value="${receiptNo}" disabled style="font-weight:700;color:var(--navy);"></div>
+      <div class="field"><label>Method</label><select id="pMethod"><option>Cash</option><option>Mobile Money</option><option>Bank Transfer</option><option>Cheque</option></select></div>
+    </div>
+    <p class="muted" style="font-size:11.5px;margin-top:-6px;">Write this receipt number on the physical receipt you give the payer. It's generated automatically and can't be typed or edited.</p>
+    <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="pSave">Submit for Approval</button></div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#pSave').onclick = async ()=>{
+    const amount = Number(modalRoot.querySelector('#pAmount').value);
+    if(!amount || amount<=0){ toast('Enter a valid payment amount'); return; }
+    const sem = modalRoot.querySelector('#pSem').value;
+    const date = modalRoot.querySelector('#pDate').value || new Date().toISOString().slice(0,10);
+    const receipt = receiptNo;
+    const method = modalRoot.querySelector('#pMethod').value;
+    const entry = {
+      logId: 'l'+Date.now()+Math.random().toString(36).slice(2,7),
+      date, studentId: s.id, name: s.name, classCode: s.classCode, semester: sem, amount, method, receipt,
+      status:'pending', submittedBy: STATE.currentUser.id, submittedByName: STATE.currentUser.fullName, submittedAt: new Date().toISOString(),
+    };
+    const {error} = await sb.from('payment_log').insert(logToRow(entry));
+    if(error){ toast('Error: '+error.message); return; }
+    STATE.log.push(entry);
+    const nextCounter = (STATE.receiptCounter||1)+1;
+    const {error:cErr} = await sb.from('school_config').update({receipt_counter: nextCounter}).eq('id',1);
+    if(!cErr) STATE.receiptCounter = nextCounter;
+    closeModal(); render(); toast(`Payment of ${fmt(amount)} submitted — Receipt ${receipt}`);
+  };
+}
+
+
+/* ============================= GRADES (Admin only — high restriction) ============================= */
+function slugify(s){ return String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || 'subject'; }
+const BLANK_GRADE_ROW = (studentId)=>({id:null, studentId, subject:'', p1:'', p2:'', p3:'', examS1:'', p4:'', p5:'', p6:'', examS2:'', remarks:''});
+
+function renderGrades(main){
+  const tab = STATE.gradesTab || 'report';
+  main.innerHTML = `
+    <div class="topline">
+      <div><h2>Grade Reporting</h2><p>Restricted to Admin only. 3 periods + an exam per semester, 6 periods total.</p></div>
+      <div class="topline-actions">
+        <button class="btn ${tab==='report'?'':'ghost'}" data-gtab="report">Report Cards</button>
+        <button class="btn ${tab==='rank'?'':'ghost'}" data-gtab="rank">Class Ranking</button>
+      </div>
+    </div>
+    <div id="gradesBody"></div>
+  `;
+  main.querySelectorAll('[data-gtab]').forEach(b=> b.onclick = ()=>{ STATE.gradesTab = b.dataset.gtab; render(); });
+  const body = main.querySelector('#gradesBody');
+  if(tab==='rank') renderClassRanking(body); else renderReportCards(body);
+}
+
+function renderReportCards(main){
+  const cls = STATE.gradesClass || CLASS_DEFS[0].code;
+  const list = STATE.students.filter(s=>s.classCode===cls).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  main.innerHTML = `
+    <div class="topline"><div></div><div class="topline-actions"><select id="gClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div></div>
+    <div class="panel" style="overflow-x:auto;">
+      ${list.length===0? `<p class="muted" style="font-size:13px;">No students in this class yet.</p>` : `
+      <table><thead><tr><th>ID</th><th>Name</th><th class="tright">Subjects Recorded</th><th class="tright">Sem 1 Avg</th><th class="tright">Sem 2 Avg</th><th></th></tr></thead>
+        <tbody>${list.map(s=>{
+          const g = STATE.grades.filter(x=>x.studentId===s.id);
+          const s1s = g.map(x=>gradeAvg(x,'s1')).filter(v=>v!==null);
+          const s2s = g.map(x=>gradeAvg(x,'s2')).filter(v=>v!==null);
+          const a1 = s1s.length? (s1s.reduce((a,v)=>a+v,0)/s1s.length).toFixed(1) : '—';
+          const a2 = s2s.length? (s2s.reduce((a,v)=>a+v,0)/s2s.length).toFixed(1) : '—';
+          return `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.name)||'<span class="muted">(unnamed)</span>'}</td><td class="tright">${g.length}</td><td class="tright mono">${a1}</td><td class="tright mono">${a2}</td><td><button class="btn ghost" data-grade="${s.id}">Report Card</button></td></tr>`;
+        }).join('')}</tbody></table>`}
+    </div>
+    <p class="muted" style="font-size:12px;">Only Admin accounts can view or edit grades — Bursars and Viewers have no access to this section.</p>
+  `;
+  main.querySelector('#gClass').onchange = e=>{ STATE.gradesClass = e.target.value; render(); };
+  main.querySelectorAll('[data-grade]').forEach(b=> b.onclick = ()=> openGradesModal(b.dataset.grade));
+}
+
+function openGradesModal(studentId){
+  if(!can('manageGrades')) return;
+  const s = STATE.students.find(x=>x.id===studentId);
+  if(!s) return;
+  let rows = STATE.grades.filter(g=>g.studentId===studentId).map(g=>({...g}));
+  if(rows.length===0) rows = [BLANK_GRADE_ROW(studentId)];
+  const allCols = [...GRADE_COLS_S1, ...GRADE_COLS_S2];
+
+  function draw(){
+    openModal(`
+      <button class="close-x" data-close>×</button>
+      <h3>Report Card</h3>
+      <p class="mhint">${esc(s.name)||esc(s.id)} · ${esc(CLASS_LABEL[s.classCode])} — 3 periods + exam per semester</p>
+      <div style="overflow-x:auto;">
+      <table id="gRows"><thead><tr>
+        <th style="text-align:left;">Subject</th>
+        <th colspan="4" class="tcenter" style="border-bottom:1px solid var(--line);">Semester 1</th>
+        <th class="tright">Avg S1</th>
+        <th colspan="4" class="tcenter" style="border-bottom:1px solid var(--line);">Semester 2</th>
+        <th class="tright">Avg S2</th>
+        <th style="text-align:left;">Remarks</th><th></th>
+      </tr>
+      <tr><th></th>${GRADE_COLS_S1.map(([k,lbl])=>`<th class="tright">${lbl}</th>`).join('')}<th></th>${GRADE_COLS_S2.map(([k,lbl])=>`<th class="tright">${lbl}</th>`).join('')}<th></th><th></th><th></th></tr>
+      </thead>
+      <tbody>
+        ${rows.map((r,i)=>`
+          <tr data-row="${i}">
+            <td><input type="text" class="gSubject wide-input" value="${esc(r.subject)}" placeholder="e.g. Mathematics"></td>
+            ${GRADE_COLS_S1.map(([k])=>`<td><input type="number" min="0" max="100" class="gCell" data-k="${k}" value="${r[k]??''}"></td>`).join('')}
+            <td class="tright mono">${gradeAvg(r,'s1')!==null? gradeAvg(r,'s1').toFixed(1) : '—'}</td>
+            ${GRADE_COLS_S2.map(([k])=>`<td><input type="number" min="0" max="100" class="gCell" data-k="${k}" value="${r[k]??''}"></td>`).join('')}
+            <td class="tright mono">${gradeAvg(r,'s2')!==null? gradeAvg(r,'s2').toFixed(1) : '—'}</td>
+            <td><input type="text" class="gRemarks wide-input" value="${esc(r.remarks||'')}" placeholder="optional"></td>
+            <td><button class="btn ghost" data-remove="${i}">✕</button></td>
+          </tr>`).join('')}
+      </tbody>
+      <tfoot>
+      <tr style="font-weight:700;border-top:2px solid var(--line);"><td>Total</td>
+        ${GRADE_COLS_S1.map(([k])=>{ let sum=0; rows.forEach(r=>{ if(r[k]!==''&&r[k]!==null&&r[k]!==undefined) sum+=Number(r[k]); }); return `<td class="tright mono">${sum}</td>`; }).join('')}
+        <td></td>
+        ${GRADE_COLS_S2.map(([k])=>{ let sum=0; rows.forEach(r=>{ if(r[k]!==''&&r[k]!==null&&r[k]!==undefined) sum+=Number(r[k]); }); return `<td class="tright mono">${sum}</td>`; }).join('')}
+        <td></td><td></td><td></td>
+      </tr>
+      <tr style="font-weight:700;"><td>Average</td>
+        ${GRADE_COLS_S1.map(([k])=>{ let sum=0,c=0; rows.forEach(r=>{ if(r[k]!==''&&r[k]!==null&&r[k]!==undefined){ sum+=Number(r[k]); c++; } }); return `<td class="tright mono">${c? (sum/c).toFixed(1):'—'}</td>`; }).join('')}
+        <td></td>
+        ${GRADE_COLS_S2.map(([k])=>{ let sum=0,c=0; rows.forEach(r=>{ if(r[k]!==''&&r[k]!==null&&r[k]!==undefined){ sum+=Number(r[k]); c++; } }); return `<td class="tright mono">${c? (sum/c).toFixed(1):'—'}</td>`; }).join('')}
+        <td></td><td></td><td></td>
+      </tr>
+      </tfoot>
+      </table>
+      </div>
+      <button class="btn ghost" id="gAddRow" style="margin-top:10px;">+ Add Subject</button>
+      <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="gSave">Save Report Card</button></div>
+    `, 'wide');
+    modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+    modalRoot.querySelector('#gAddRow').onclick = ()=>{ syncRows(); rows.push(BLANK_GRADE_ROW(studentId)); draw(); };
+    modalRoot.querySelectorAll('[data-remove]').forEach(b=>{
+      b.onclick = ()=>{ syncRows(); rows.splice(Number(b.dataset.remove),1); if(rows.length===0) rows=[BLANK_GRADE_ROW(studentId)]; draw(); };
+    });
+    modalRoot.querySelector('#gSave').onclick = async ()=>{
+      syncRows();
+      const clean = rows.filter(r=>r.subject && r.subject.trim());
+      const existingBefore = STATE.grades.filter(g=>g.studentId===studentId);
+      const keepIds = new Set();
+      for(const r of clean){
+        const id = studentId + '::' + slugify(r.subject);
+        keepIds.add(id);
+        const g = {id, studentId, subject:r.subject.trim(), p1:r.p1, p2:r.p2, p3:r.p3, examS1:r.examS1, p4:r.p4, p5:r.p5, p6:r.p6, examS2:r.examS2,
+          remarks:r.remarks, updatedBy:STATE.currentUser.id, updatedByName:STATE.currentUser.fullName, updatedAt:new Date().toISOString()};
+        const {error} = await sb.from('grades').upsert(gradeToRow(g));
+        if(error){ toast('Error saving '+r.subject+': '+error.message); return; }
+      }
+      const toDelete = existingBefore.filter(g=>!keepIds.has(g.id));
+      for(const g of toDelete){ await sb.from('grades').delete().eq('id', g.id); }
+      STATE.grades = STATE.grades.filter(g=>g.studentId!==studentId).concat(clean.map(r=>({
+        id: studentId+'::'+slugify(r.subject), studentId, subject:r.subject.trim(), p1:r.p1,p2:r.p2,p3:r.p3,examS1:r.examS1,p4:r.p4,p5:r.p5,p6:r.p6,examS2:r.examS2,
+        remarks:r.remarks, updatedByName: STATE.currentUser.fullName, updatedAt: new Date().toISOString(),
+      })));
+      closeModal(); render(); toast('Report card saved');
+    };
+  }
+  function syncRows(){
+    modalRoot.querySelectorAll('#gRows tbody [data-row]').forEach((el,i)=>{
+      const upd = {...rows[i], subject: el.querySelector('.gSubject').value, remarks: el.querySelector('.gRemarks').value};
+      el.querySelectorAll('.gCell').forEach(inp=>{ upd[inp.dataset.k] = inp.value; });
+      rows[i] = upd;
+    });
+  }
+  draw();
+}
+
+function renderClassRanking(main){
+  const cls = STATE.rankClass || CLASS_DEFS[0].code;
+  const period = STATE.rankPeriod || 'avgS1';
+  const list = STATE.students.filter(s=>s.classCode===cls);
+  function studentPeriodAvg(studentId, key){
+    const subs = STATE.grades.filter(g=>g.studentId===studentId);
+    let vals = [];
+    if(key==='avgS1') vals = subs.map(g=>gradeAvg(g,'s1')).filter(v=>v!==null);
+    else if(key==='avgS2') vals = subs.map(g=>gradeAvg(g,'s2')).filter(v=>v!==null);
+    else if(key==='overall') vals = subs.flatMap(g=>['p1','p2','p3','examS1','p4','p5','p6','examS2'].map(k=>g[k])).filter(v=>v!==null && v!==undefined && v!=='').map(Number);
+    else vals = subs.map(g=>g[key]).filter(v=>v!==null && v!==undefined && v!=='').map(Number);
+    return {avg: vals.length? vals.reduce((a,v)=>a+v,0)/vals.length : null, count: vals.length};
+  }
+  const ranked = list.map(s=>{ const r = studentPeriodAvg(s.id, period); return {student:s, avg:r.avg, count:r.count}; })
+    .filter(r=>r.avg!==null).sort((a,b)=>b.avg-a.avg);
+  const noData = list.length - ranked.length;
+  main.innerHTML = `
+    <div class="topline"><div></div><div class="topline-actions">
+      <select id="rClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select>
+      <select id="rPeriod">${RANK_PERIODS.map(([k,lbl])=>`<option value="${k}" ${period===k?'selected':''}>${lbl}</option>`).join('')}</select>
+    </div></div>
+    <div class="panel" style="overflow-x:auto;">
+      ${ranked.length===0? `<p class="muted" style="font-size:13px;">No grades recorded yet for this class/period.</p>` : `
+      <table><thead><tr><th>Rank</th><th>ID</th><th>Name</th><th class="tright">Average</th><th class="tright">Subjects Counted</th></tr></thead>
+        <tbody>${ranked.map((r,i)=>`<tr><td><strong>${i+1}</strong></td><td class="mono">${esc(r.student.id)}</td><td>${esc(r.student.name)||'<span class="muted">(unnamed)</span>'}</td><td class="tright mono" style="font-weight:600;">${r.avg.toFixed(1)}</td><td class="tright">${r.count}</td></tr>`).join('')}</tbody></table>`}
+    </div>
+    ${noData>0? `<p class="muted" style="font-size:12px;">${noData} student(s) in this class have no grades recorded yet for this period and aren't ranked.</p>` : ''}
+  `;
+  main.querySelector('#rClass').onchange = e=>{ STATE.rankClass = e.target.value; render(); };
+  main.querySelector('#rPeriod').onchange = e=>{ STATE.rankPeriod = e.target.value; render(); };
+}
+
+/* ============================= TEACHERS & PAYROLL (Admin only) ============================= */
+function nextTeacherId(){
+  const nums = STATE.teachers.map(t=>{ const m=(t.id||'').match(/-(\d+)$/); return m?parseInt(m[1],10):0; });
+  const next = (nums.length? Math.max(...nums):0) + 1;
+  return `TCH-${String(next).padStart(3,'0')}`;
+}
+function renderTeachers(main){
+  const tab = STATE.teachersTab || 'profiles';
+  main.innerHTML = `
+    <div class="topline">
+      <div><h2>Teachers & Payroll</h2><p>Restricted to Admin only. Profiles, monthly salary, deductions and tax.</p></div>
+      <div class="topline-actions">
+        <button class="btn ${tab==='profiles'?'':'ghost'}" data-ttab="profiles">Profiles</button>
+        <button class="btn ${tab==='salary'?'':'ghost'}" data-ttab="salary">Salary Log</button>
+        <button class="btn ghost" id="taxBtn">Tax Brackets</button>
+      </div>
+    </div>
+    <div id="teachersBody"></div>
+  `;
+  main.querySelectorAll('[data-ttab]').forEach(b=> b.onclick = ()=>{ STATE.teachersTab = b.dataset.ttab; render(); });
+  main.querySelector('#taxBtn').onclick = openTaxBracketsModal;
+  const body = main.querySelector('#teachersBody');
+  if(tab==='salary') renderSalaryLog(body); else renderTeacherProfiles(body);
+}
+
+function renderTeacherProfiles(main){
+  const list = [...STATE.teachers].sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  main.innerHTML = `
+    <div class="panel" style="overflow-x:auto;">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn" data-action="add-teacher">+ Add Teacher</button></div>
+      ${list.length===0? `<p class="muted" style="font-size:13px;">No teachers added yet.</p>` : `
+      <table><thead><tr><th>ID</th><th>Name</th><th>Subjects</th><th>Classes</th><th class="tright">Base Salary</th><th>Status</th><th></th></tr></thead>
+        <tbody>${list.map(t=>`<tr><td class="mono">${esc(t.id)}</td><td>${esc(t.name)}</td><td class="muted">${esc(t.subjects)||'—'}</td><td class="muted">${esc(t.classes)||'—'}</td><td class="tright mono">${fmt(t.baseSalary)}</td><td><span class="badge ${t.status==='Active'?'role':'inactive'}">${esc(t.status)}</span></td>
+          <td style="white-space:nowrap;"><button class="btn ghost" data-pay="${t.id}">Pay Salary</button> <button class="btn ghost" data-edit-t="${t.id}">Edit</button></td></tr>`).join('')}</tbody></table>`}
+    </div>
+  `;
+  main.querySelector('[data-action="add-teacher"]').onclick = ()=> openTeacherModal(null);
+  main.querySelectorAll('[data-edit-t]').forEach(b=> b.onclick = ()=> openTeacherModal(b.dataset.editT));
+  main.querySelectorAll('[data-pay]').forEach(b=> b.onclick = ()=> openSalaryModal(b.dataset.pay));
+}
+
+function openTeacherModal(teacherId){
+  const editing = !!teacherId;
+  const t = editing ? STATE.teachers.find(x=>x.id===teacherId) : null;
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>${editing? 'Edit Teacher':'Add Teacher'}</h3>
+    <div class="field"><label>Full Name</label><input type="text" id="tName" value="${editing?esc(t.name):''}" placeholder="e.g. Mary Kollie"></div>
+    <div class="field2">
+      <div class="field"><label>Contact / Phone</label><input type="text" id="tContact" value="${editing?esc(t.contact||''):''}"></div>
+      <div class="field"><label>Email</label><input type="text" id="tEmail" value="${editing?esc(t.email||''):''}"></div>
+    </div>
+    <div class="field"><label>Subjects Teaching</label><input type="text" id="tSubjects" value="${editing?esc(t.subjects||''):''}" placeholder="e.g. Mathematics, Physics"></div>
+    <div class="field"><label>Classes Assigned</label><input type="text" id="tClasses" value="${editing?esc(t.classes||''):''}" placeholder="e.g. G9, G10, G11"></div>
+    <div class="field2">
+      <div class="field"><label>Base Monthly Salary (LRD)</label><input type="number" min="0" id="tSalary" value="${editing?t.baseSalary:0}"></div>
+      <div class="field"><label>Status</label><select id="tStatus">
+        <option value="Active" ${!editing||t.status==='Active'?'selected':''}>Active</option>
+        <option value="Inactive" ${editing&&t.status==='Inactive'?'selected':''}>Inactive</option>
+      </select></div>
+    </div>
+    <div class="field"><label>Hire Date</label><input type="date" id="tHire" value="${editing&&t.hireDate?t.hireDate:''}"></div>
+    <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="tSave">${editing?'Save Changes':'Add Teacher'}</button></div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#tSave').onclick = async ()=>{
+    const name = modalRoot.querySelector('#tName').value.trim();
+    if(!name){ toast("Enter the teacher's name"); return; }
+    const payload = {
+      id: editing? t.id : nextTeacherId(), name,
+      contact: modalRoot.querySelector('#tContact').value.trim(),
+      email: modalRoot.querySelector('#tEmail').value.trim(),
+      subjects: modalRoot.querySelector('#tSubjects').value.trim(),
+      classes: modalRoot.querySelector('#tClasses').value.trim(),
+      baseSalary: Number(modalRoot.querySelector('#tSalary').value)||0,
+      status: modalRoot.querySelector('#tStatus').value,
+      hireDate: modalRoot.querySelector('#tHire').value,
+    };
+    const {error} = editing ? await sb.from('teachers').update(teacherToRow(payload)).eq('id', payload.id) : await sb.from('teachers').insert(teacherToRow(payload));
+    if(error){ toast('Error: '+error.message); return; }
+    if(editing){ Object.assign(t, payload); } else { STATE.teachers.push(payload); }
+    closeModal(); render(); toast(editing? 'Teacher updated' : 'Teacher added');
+  };
+}
+
+function openSalaryModal(teacherId){
+  const t = STATE.teachers.find(x=>x.id===teacherId);
+  if(!t) return;
+  const month = new Date().toISOString().slice(0,7);
+  let deductions = [];
+
+  function draw(){
+    const gross = Number(document.getElementById('sGross')?.value ?? t.baseSalary) || t.baseSalary;
+    const tax = computeTax(gross);
+    const dedTotal = deductions.reduce((a,d)=>a+(Number(d.amount)||0),0);
+    const net = gross - tax - dedTotal;
+    openModal(`
+      <button class="close-x" data-close>×</button>
+      <h3>Pay Salary — ${esc(t.name)}</h3>
+      <p class="mhint">${esc(t.id)} · Base salary ${fmt(t.baseSalary)}</p>
+      <div class="field2">
+        <div class="field"><label>Month</label><input type="month" id="sMonth" value="${month}"></div>
+        <div class="field"><label>Gross Salary (LRD)</label><input type="number" min="0" id="sGross" value="${gross}"></div>
+      </div>
+      <div class="note-box">Tax: ${fmt(tax)} (computed automatically from your Tax Brackets)</div>
+      <div style="margin-top:12px;"><label style="font-size:11.5px;font-weight:600;color:var(--ink-soft);">Deductions / Penalties</label>
+        <div id="dRows" style="margin-top:6px;">
+          ${deductions.map((d,i)=>`<div class="field2" data-drow="${i}" style="grid-template-columns:2fr 1fr auto;align-items:end;">
+            <div class="field"><input type="text" class="dLabel" value="${esc(d.label)}" placeholder="e.g. Lateness penalty"></div>
+            <div class="field"><input type="number" min="0" class="dAmount" value="${d.amount}"></div>
+            <button class="btn ghost" data-drm="${i}">✕</button>
+          </div>`).join('')}
+        </div>
+        <button class="btn ghost" id="dAdd" style="margin-top:4px;">+ Add Deduction</button>
+      </div>
+      <div class="field2" style="margin-top:14px;">
+        <div class="field"><label>Total Deductions</label><input type="text" value="${fmt(dedTotal)}" disabled></div>
+        <div class="field"><label>Net Pay</label><input type="text" value="${fmt(net)}" disabled style="font-weight:700;color:var(--navy);"></div>
+      </div>
+      <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="sSave">Post Payment</button></div>
+    `);
+    modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+    modalRoot.querySelector('#sGross').onchange = ()=>{ syncDeductions(); draw(); };
+    modalRoot.querySelector('#dAdd').onclick = ()=>{ syncDeductions(); deductions.push({label:'', amount:0}); draw(); };
+    modalRoot.querySelectorAll('[data-drm]').forEach(b=> b.onclick = ()=>{ syncDeductions(); deductions.splice(Number(b.dataset.drm),1); draw(); });
+    modalRoot.querySelectorAll('.dLabel, .dAmount').forEach(inp=> inp.onchange = ()=>{ syncDeductions(); draw(); });
+    modalRoot.querySelector('#sSave').onclick = async ()=>{
+      syncDeductions();
+      const finalGross = Number(modalRoot.querySelector('#sGross').value)||0;
+      const finalMonth = modalRoot.querySelector('#sMonth').value || month;
+      const finalTax = computeTax(finalGross);
+      const finalDedTotal = deductions.reduce((a,d)=>a+(Number(d.amount)||0),0);
+      const finalNet = finalGross - finalTax - finalDedTotal;
+      const payment = {
+        id: 'sal_'+Date.now()+Math.random().toString(36).slice(2,7), teacherId:t.id, teacherName:t.name, month:finalMonth,
+        gross:finalGross, tax:finalTax, deductions, net:finalNet, paidDate:new Date().toISOString().slice(0,10),
+        paidBy:STATE.currentUser.id, paidByName:STATE.currentUser.fullName,
+      };
+      const {error} = await sb.from('teacher_payments').insert(paymentToRow(payment));
+      if(error){ toast('Error: '+error.message); return; }
+      STATE.teacherPayments.unshift(payment);
+      closeModal(); render(); toast(`Salary of ${fmt(finalNet)} posted for ${t.name}`);
+    };
+  }
+  function syncDeductions(){
+    modalRoot.querySelectorAll('#dRows [data-drow]').forEach((el,i)=>{
+      deductions[i] = {label: el.querySelector('.dLabel').value, amount: Number(el.querySelector('.dAmount').value)||0};
+    });
+  }
+  draw();
+}
+
+function renderSalaryLog(main){
+  const list = [...STATE.teacherPayments].sort((a,b)=> (b.month||'').localeCompare(a.month||''));
+  main.innerHTML = `
+    <div class="panel" style="overflow-x:auto;">
+      ${list.length===0? `<p class="muted" style="font-size:13px;">No salary payments recorded yet.</p>` : `
+      <table><thead><tr><th>Month</th><th>Teacher</th><th class="tright">Gross</th><th class="tright">Tax</th><th class="tright">Deductions</th><th class="tright">Net</th><th>Paid</th></tr></thead>
+        <tbody>${list.map(p=>{
+          const dedTotal = (p.deductions||[]).reduce((a,d)=>a+(Number(d.amount)||0),0);
+          return `<tr><td class="mono">${esc(p.month)}</td><td>${esc(p.teacherName)}</td><td class="tright mono">${fmt(p.gross)}</td><td class="tright mono">${fmt(p.tax)}</td><td class="tright mono">${fmt(dedTotal)}</td><td class="tright mono" style="font-weight:600;">${fmt(p.net)}</td><td class="muted">${esc(p.paidDate)}</td></tr>`;
+        }).join('')}</tbody></table>`}
+    </div>
+  `;
+}
+
+function openTaxBracketsModal(){
+  let brackets = STATE.taxBrackets.map(b=>({...b}));
+  function draw(){
+    openModal(`
+      <button class="close-x" data-close>×</button>
+      <h3>Tax Deduction Brackets</h3>
+      <p class="mhint">Progressive brackets applied to gross salary. Edit these to match your actual payroll/tax policy — leave the last "Max" blank for "and above."</p>
+      <div id="bRows">
+        ${brackets.map((b,i)=>`<div class="field2" data-brow="${i}" style="grid-template-columns:1fr 1fr 0.8fr auto;align-items:end;">
+          <div class="field"><label>${i===0?'Min (LRD)':''}</label><input type="number" min="0" class="bMin" value="${b.min}"></div>
+          <div class="field"><label>${i===0?'Max (LRD)':''}</label><input type="number" min="0" class="bMax" value="${b.max===null?'':b.max}" placeholder="blank = no limit"></div>
+          <div class="field"><label>${i===0?'Rate %':''}</label><input type="number" min="0" max="100" class="bRate" value="${b.rate}"></div>
+          <button class="btn ghost" data-brm="${i}">✕</button>
+        </div>`).join('')}
+      </div>
+      <button class="btn ghost" id="bAdd" style="margin-top:6px;">+ Add Bracket</button>
+      <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="bSave">Save Brackets</button></div>
+    `);
+    modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+    modalRoot.querySelector('#bAdd').onclick = ()=>{ sync(); brackets.push({min:0,max:null,rate:0}); draw(); };
+    modalRoot.querySelectorAll('[data-brm]').forEach(b=> b.onclick = ()=>{ sync(); brackets.splice(Number(b.dataset.brm),1); draw(); });
+    modalRoot.querySelector('#bSave').onclick = async ()=>{
+      sync();
+      const {error} = await sb.from('school_config').update({tax_brackets: brackets}).eq('id',1);
+      if(error){ toast('Error saving: '+error.message); return; }
+      STATE.taxBrackets = brackets;
+      closeModal(); render(); toast('Tax brackets updated');
+    };
+  }
+  function sync(){
+    modalRoot.querySelectorAll('#bRows [data-brow]').forEach((el,i)=>{
+      const maxVal = el.querySelector('.bMax').value;
+      brackets[i] = {min:Number(el.querySelector('.bMin').value)||0, max: maxVal===''?null:Number(maxVal), rate:Number(el.querySelector('.bRate').value)||0};
+    });
+  }
+  draw();
+}
+
+/* ============================= BOOT ============================= */
+initAuth();
+</script>
+</body>
+</html>
