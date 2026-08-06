@@ -1,0 +1,8 @@
+{
+  "name": "School Fee Ledger",
+  "short_name": "Fee Ledger",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#132340",
+  "theme_color": "#132340"
+}

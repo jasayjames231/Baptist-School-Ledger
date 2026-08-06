@@ -3,9 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <title>School Fee Ledger — Liberia</title>
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#132340">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/idb-keyval@6/dist/umd.js"></script>
 <style>
   :root{
     --navy:#132340; --navy-2:#1c3358; --paper:#F6F3EC; --paper-2:#EFEAE0; --ink:#1B1D22; --ink-soft:#5B5F6A;
@@ -53,6 +56,10 @@
   .side-foot .who{font-size:12.5px;color:#EDE7D6;font-weight:600;}
   .side-foot .role{font-size:10.5px;color:#9FAAC0;text-transform:uppercase;letter-spacing:.05em;}
   .side-foot .yr{font-family:'IBM Plex Mono',monospace;font-size:11px;color:#9FAAC0;margin-top:8px;}
+  .conn-status{font-size:10.5px;margin-top:8px;padding:5px 8px;border-radius:6px;background:rgba(255,255,255,.06);}
+  .conn-status.conn-off{color:#F3C7C2;}
+  .conn-status.conn-warn{color:#F0D9A6;}
+  .conn-status.conn-ok{color:#B9E0C6;}
   .side-foot button{width:100%;margin-top:8px;background:none;border:1px solid rgba(255,255,255,.2);color:#CBD4E3;padding:7px;border-radius:7px;font-size:11.5px;cursor:pointer;}
   .side-foot button:hover{background:rgba(255,255,255,.08);}
 
@@ -257,6 +264,7 @@ let STATE = {
   rankClass: CLASS_DEFS[0].code,
   rankPeriod: 'avgS1',
   teachersTab:'profiles',
+  outboxCount:0, offlineBoot:false,
 };
 
 /* ============================= ROW <-> APP MAPPING ============================= */
@@ -334,9 +342,81 @@ function computeTax(gross){
   return Math.round(tax*100)/100;
 }
 
+/* ============================= OFFLINE CACHE + SYNC ============================= */
+const IDB = window.idbKeyval;
+async function cacheSnapshot(){
+  if(!IDB) return;
+  try{
+    await IDB.setMany([
+      ['cache_students', STATE.students], ['cache_fees', STATE.fees], ['cache_schoolInfo', STATE.schoolInfo],
+      ['cache_log', STATE.log], ['cache_currentUser', STATE.currentUser], ['cache_receiptCounter', STATE.receiptCounter],
+      ['cache_savedAt', new Date().toISOString()],
+    ]);
+  }catch(e){ /* storage unavailable — offline mode just won't have a cache yet */ }
+}
+async function loadSnapshot(){
+  if(!IDB) return false;
+  try{
+    const cu = await IDB.get('cache_currentUser');
+    if(!cu) return false;
+    STATE.currentUser = cu;
+    STATE.students = (await IDB.get('cache_students')) || [];
+    STATE.fees = (await IDB.get('cache_fees')) || JSON.parse(JSON.stringify(DEFAULT_FEES));
+    STATE.schoolInfo = (await IDB.get('cache_schoolInfo')) || {...DEFAULT_SCHOOL_INFO};
+    STATE.log = (await IDB.get('cache_log')) || [];
+    STATE.receiptCounter = (await IDB.get('cache_receiptCounter')) || 1;
+    STATE.cacheSavedAt = await IDB.get('cache_savedAt');
+    return true;
+  }catch(e){ return false; }
+}
+async function queueOfflinePayment(entry){
+  if(!IDB) return;
+  const q = (await IDB.get('outbox_payments')) || [];
+  q.push(entry);
+  await IDB.set('outbox_payments', q);
+  STATE.outboxCount = q.length;
+}
+async function getOutbox(){ if(!IDB) return []; return (await IDB.get('outbox_payments')) || []; }
+async function clearOutboxItem(logId){
+  if(!IDB) return;
+  let q = await getOutbox();
+  q = q.filter(e=>e.logId!==logId);
+  await IDB.set('outbox_payments', q);
+  STATE.outboxCount = q.length;
+}
+async function syncOutbox(){
+  if(!navigator.onLine || !sb) return;
+  const queue = await getOutbox();
+  if(queue.length===0) return;
+  let successCount = 0;
+  for(const entry of queue){
+    try{
+      const {error} = await sb.from('payment_log').insert(logToRow(entry));
+      if(!error){ await clearOutboxItem(entry.logId); successCount++; }
+    }catch(e){ /* still offline or a transient error — leave it queued, try again next time */ }
+  }
+  if(successCount>0){
+    toast(`${successCount} offline payment${successCount>1?'s':''} synced`);
+    try{ await loadAllData(); }catch(e){}
+    render();
+  }
+}
+
 /* ============================= AUTH + DATA LOADING ============================= */
 async function initAuth(){
   if(!CONFIGURED){ STATE.loaded = true; render(); return; }
+  STATE.outboxCount = (await getOutbox()).length;
+  if(!navigator.onLine){
+    const gotCache = await loadSnapshot();
+    STATE.loaded = true;
+    STATE.offlineBoot = true;
+    if(!gotCache){ STATE.authError = 'You appear to be offline and no saved data was found on this device yet. Connect to the internet once first, then it will work offline afterward.'; }
+    render();
+    window.addEventListener('online', async ()=>{ toast('Back online — syncing…'); await initAuth(); }, {once:true});
+    return;
+  }
+  window.addEventListener('online', async ()=>{ toast('Back online — syncing…'); await syncOutbox(); render(); });
+  window.addEventListener('offline', ()=> render());
   const {data:{session}} = await sb.auth.getSession();
   if(session){ await loadProfileAndData(session.user); }
   else { STATE.loaded = true; render(); }
@@ -382,6 +462,9 @@ async function loadAllData(){
     STATE.teachers = (teachersRes.data||[]).map(teacherFromRow);
     STATE.teacherPayments = (payRes.data||[]).map(paymentFromRow);
   }
+  STATE.outboxCount = (await getOutbox()).length;
+  await cacheSnapshot();
+  if(navigator.onLine && STATE.outboxCount>0) syncOutbox();
 }
 async function refreshStudentsAndLog(){
   const [studentsRes, logRes] = await Promise.all([
@@ -585,6 +668,11 @@ function render(){
         <div class="who">${esc(STATE.currentUser.fullName)}</div>
         <div class="role">${esc(ROLES[STATE.currentUser.role].label)}</div>
         <div class="yr">AY ${esc(STATE.schoolInfo.year)}</div>
+        ${navigator.onLine
+          ? (STATE.outboxCount>0
+              ? `<div class="conn-status conn-warn">🟡 Online — ${STATE.outboxCount} payment${STATE.outboxCount>1?'s':''} syncing…</div>`
+              : `<div class="conn-status conn-ok">🟢 Online${STATE.offlineBoot?' — synced':''}</div>`)
+          : `<div class="conn-status conn-off">🔴 Offline${STATE.outboxCount>0? ` — ${STATE.outboxCount} payment${STATE.outboxCount>1?'s':''} queued`:''}</div>`}
         <button data-action="settings">School Info</button>
         <button data-action="logout">Log Out</button>
       </div>
@@ -1055,20 +1143,40 @@ function openPaymentModal(studentId){
     if(!amount || amount<=0){ toast('Enter a valid payment amount'); return; }
     const sem = modalRoot.querySelector('#pSem').value;
     const date = modalRoot.querySelector('#pDate').value || new Date().toISOString().slice(0,10);
-    const receipt = receiptNo;
     const method = modalRoot.querySelector('#pMethod').value;
+    const offline = !navigator.onLine;
+    const receipt = offline ? ('OFF-'+Date.now().toString(36).toUpperCase()) : receiptNo;
     const entry = {
       logId: 'l'+Date.now()+Math.random().toString(36).slice(2,7),
       date, studentId: s.id, name: s.name, classCode: s.classCode, semester: sem, amount, method, receipt,
       status:'pending', submittedBy: STATE.currentUser.id, submittedByName: STATE.currentUser.fullName, submittedAt: new Date().toISOString(),
     };
-    const {error} = await sb.from('payment_log').insert(logToRow(entry));
-    if(error){ toast('Error: '+error.message); return; }
-    STATE.log.push(entry);
-    const nextCounter = (STATE.receiptCounter||1)+1;
-    const {error:cErr} = await sb.from('school_config').update({receipt_counter: nextCounter}).eq('id',1);
-    if(!cErr) STATE.receiptCounter = nextCounter;
-    closeModal(); render(); toast(`Payment of ${fmt(amount)} submitted — Receipt ${receipt}`);
+    if(offline){
+      await queueOfflinePayment(entry);
+      STATE.log.push(entry);
+      await cacheSnapshot();
+      closeModal(); render();
+      toast(`Offline — payment queued. Receipt ${receipt}. It will sync automatically when back online.`);
+      return;
+    }
+    try{
+      const {error} = await sb.from('payment_log').insert(logToRow(entry));
+      if(error){ toast('Error: '+error.message); return; }
+      STATE.log.push(entry);
+      const nextCounter = (STATE.receiptCounter||1)+1;
+      const {error:cErr} = await sb.from('school_config').update({receipt_counter: nextCounter}).eq('id',1);
+      if(!cErr) STATE.receiptCounter = nextCounter;
+      await cacheSnapshot();
+      closeModal(); render(); toast(`Payment of ${fmt(amount)} submitted — Receipt ${receipt}`);
+    }catch(networkErr){
+      const offReceipt = 'OFF-'+Date.now().toString(36).toUpperCase();
+      entry.receipt = offReceipt;
+      await queueOfflinePayment(entry);
+      STATE.log.push(entry);
+      await cacheSnapshot();
+      closeModal(); render();
+      toast(`Connection lost — payment queued offline. Receipt ${offReceipt}.`);
+    }
   };
 }
 
@@ -1449,4 +1557,9 @@ function openTaxBracketsModal(){
 initAuth();
 </script>
 </body>
+<script>
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{ navigator.serviceWorker.register('./sw.js').catch(()=>{}); });
+}
+</script>
 </html>
