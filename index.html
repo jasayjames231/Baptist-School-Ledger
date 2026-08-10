@@ -272,14 +272,19 @@ function studentFromRow(r){
   return {id:r.id, name:r.name, classCode:r.class_code, gender:r.gender, age:r.age, parent:r.parent, contact:r.contact,
     enrollDate:r.enroll_date, status:r.status, studentType:r.student_type||'New',
     s1Paid:Number(r.s1_paid)||0, s1Date:r.s1_date, s1Receipt:r.s1_receipt,
-    s2Paid:Number(r.s2_paid)||0, s2Date:r.s2_date, s2Receipt:r.s2_receipt};
+    s2Paid:Number(r.s2_paid)||0, s2Date:r.s2_date, s2Receipt:r.s2_receipt,
+    dob:r.dob||'', photoUrl:r.photo_url||'', previousSchool:r.previous_school||'', previousSchoolNotes:r.previous_school_notes||'',
+    guardianAddress:r.guardian_address||'', documents:r.documents||[]};
 }
 function studentToRow(s){
   return {id:s.id, name:s.name, class_code:s.classCode, gender:s.gender||null, age:s.age?String(s.age):null,
     parent:s.parent||null, contact:s.contact||null, enroll_date:s.enrollDate||null, status:s.status||'Active',
     student_type:s.studentType||'New',
     s1_paid:Number(s.s1Paid)||0, s1_date:s.s1Date||null, s1_receipt:s.s1Receipt||null,
-    s2_paid:Number(s.s2Paid)||0, s2_date:s.s2Date||null, s2_receipt:s.s2Receipt||null};
+    s2_paid:Number(s.s2Paid)||0, s2_date:s.s2Date||null, s2_receipt:s.s2Receipt||null,
+    dob:s.dob||null, photo_url:s.photoUrl||null, previous_school:s.previousSchool||null,
+    previous_school_notes:s.previousSchoolNotes||null, guardian_address:s.guardianAddress||null,
+    documents:s.documents||[]};
 }
 function logFromRow(r){
   return {logId:r.log_id, date:r.date, studentId:r.student_id, name:r.name, classCode:r.class_code, semester:r.semester,
@@ -403,6 +408,12 @@ async function syncOutbox(){
 }
 
 /* ============================= AUTH + DATA LOADING ============================= */
+async function uploadFile(bucket, path, file){
+  const {error} = await sb.storage.from(bucket).upload(path, file, {upsert:true});
+  if(error) throw error;
+  const {data} = sb.storage.from(bucket).getPublicUrl(path);
+  return data.publicUrl;
+}
 async function initAuth(){
   if(!CONFIGURED){ STATE.loaded = true; render(); return; }
   STATE.outboxCount = (await getOutbox()).length;
@@ -836,12 +847,13 @@ function renderStudents(main){
     </div>
     <div class="panel" style="padding:0; overflow-x:auto;">
       ${list.length===0? `<div class="empty"><div class="big">🎒</div><h4>No students match this view</h4><p style="font-size:13px;">Try clearing filters${can('manageStudents')?', or add a new student to get started.':'.'}</p></div>` : `
-      <table><thead><tr><th>ID</th><th>Name</th><th>Class</th><th>Type</th><th class="tright">S1 Due</th><th class="tright">S1 Paid</th><th class="tright">S1 Bal</th><th class="tright">S2 Due</th><th class="tright">S2 Paid</th><th class="tright">S2 Bal</th><th>Status</th><th></th></tr></thead>
+      <table><thead><tr><th></th><th>ID</th><th>Name</th><th>Class</th><th>Type</th><th class="tright">S1 Due</th><th class="tright">S1 Paid</th><th class="tright">S1 Bal</th><th class="tright">S2 Due</th><th class="tright">S2 Paid</th><th class="tright">S2 Bal</th><th>Status</th><th></th></tr></thead>
         <tbody>${list.map(s=>{
           const fin = calcFinance(s); const pend = pendingAmountFor(s.id);
           return `<tr>
+            <td><div style="width:30px;height:30px;border-radius:7px;overflow:hidden;background:var(--paper-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ink-soft);">${s.photoUrl?`<img src="${esc(s.photoUrl)}" style="width:100%;height:100%;object-fit:cover;">`:'👤'}</div></td>
             <td class="mono">${esc(s.id)}</td>
-            <td>${esc(s.name)||'<span class="muted">(unnamed)</span>'} ${s.status==='Inactive'?'<span class="badge inactive" style="margin-left:6px;">inactive</span>':''}
+            <td><a href="#" data-profile="${s.id}" style="color:inherit;text-decoration:none;border-bottom:1px dotted var(--ink-soft);">${esc(s.name)||'<span class="muted">(unnamed)</span>'}</a> ${s.status==='Inactive'?'<span class="badge inactive" style="margin-left:6px;">inactive</span>':''}
               ${pend>0? `<div style="font-size:10.5px;color:var(--blue);margin-top:2px;">${fmt(pend)} awaiting approval</div>`:''}
             </td>
             <td class="muted">${esc(CLASS_LABEL[s.classCode])}</td>
@@ -864,6 +876,7 @@ function renderStudents(main){
   sInp.oninput = e=>{ STATE.studentsFilter.q = e.target.value; render(); const el=document.getElementById('fSearch'); el.focus(); el.selectionStart=el.selectionEnd=10000; };
   main.querySelectorAll('[data-pay]').forEach(b=> b.onclick=()=>openPaymentModal(b.dataset.pay));
   main.querySelectorAll('[data-edit]').forEach(b=> b.onclick=()=>openStudentModal(b.dataset.edit));
+  main.querySelectorAll('[data-profile]').forEach(a=> a.onclick=(e)=>{ e.preventDefault(); openStudentProfileModal(a.dataset.profile); });
 }
 
 /* ============================= APPROVALS ============================= */
@@ -1048,6 +1061,14 @@ function openStudentModal(studentId){
     <button class="close-x" data-close>×</button>
     <h3>${editing? 'Edit Student' : 'Add Student'}</h3>
     <p class="mhint">${editing? esc(s.id) : 'A student ID is generated automatically for the class you choose.'}</p>
+    <div class="field2" style="align-items:flex-end;">
+      <div class="field" style="flex:0 0 84px;"><label>Photo</label>
+        <div id="stPhotoPreview" style="width:76px;height:76px;border-radius:10px;overflow:hidden;background:var(--paper-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--ink-soft);">
+          ${editing && s.photoUrl? `<img src="${esc(s.photoUrl)}" style="width:100%;height:100%;object-fit:cover;">` : '👤'}
+        </div>
+      </div>
+      <div class="field"><label>Upload / Replace Photo</label><input type="file" id="stPhotoFile" accept="image/*"></div>
+    </div>
     <div class="field"><label>Full Name</label><input type="text" id="stName" value="${editing? esc(s.name):''}" placeholder="e.g. Comfort D. Toe"></div>
     <div class="field2">
       <div class="field"><label>Class</label><select id="stClass" ${editing? 'disabled':''}>${CLASS_DEFS.map(c=>`<option value="${c.code}" ${defaultClass===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div>
@@ -1059,18 +1080,38 @@ function openStudentModal(studentId){
     </div>
     <div class="field2">
       <div class="field"><label>Age</label><input type="number" id="stAge" min="0" value="${editing&&s.age? s.age:''}"></div>
+      <div class="field"><label>Date of Birth</label><input type="date" id="stDob" value="${editing? esc(s.dob||''):''}"></div>
+    </div>
+    <div class="field2">
       <div class="field"><label>Status</label><select id="stStatus">
         <option value="Active" ${!editing||s.status==='Active'?'selected':''}>Active</option>
         <option value="Inactive" ${editing&&s.status==='Inactive'?'selected':''}>Inactive</option>
       </select></div>
+      <div class="field"><label>Student Type</label><select id="stType">
+        <option value="New" ${!editing||s.studentType==='New'?'selected':''}>New Student</option>
+        <option value="Old" ${editing&&s.studentType==='Old'?'selected':''}>Old / Returning Student</option>
+      </select></div>
     </div>
-    <div class="field"><label>Student Type</label><select id="stType">
-      <option value="New" ${!editing||s.studentType==='New'?'selected':''}>New Student</option>
-      <option value="Old" ${editing&&s.studentType==='Old'?'selected':''}>Old / Returning Student</option>
-    </select></div>
+    <div id="stPrevWrap" style="display:${(!editing||s.studentType==='New')?'block':'none'};">
+      <div class="field"><label>Previous School (if new student)</label><input type="text" id="stPrevSchool" value="${editing? esc(s.previousSchool||''):''}" placeholder="Name of previous school"></div>
+      <div class="field"><label>Notes from Previous School</label><input type="text" id="stPrevNotes" value="${editing? esc(s.previousSchoolNotes||''):''}" placeholder="e.g. last class completed, transfer reason"></div>
+    </div>
     <div class="field"><label>Parent / Guardian</label><input type="text" id="stParent" value="${editing? esc(s.parent):''}"></div>
-    <div class="field"><label>Contact</label><input type="text" id="stContact" value="${editing? esc(s.contact):''}" placeholder="0770 000 000"></div>
+    <div class="field2">
+      <div class="field"><label>Contact</label><input type="text" id="stContact" value="${editing? esc(s.contact):''}" placeholder="0770 000 000"></div>
+      <div class="field"><label>Guardian Address</label><input type="text" id="stGAddr" value="${editing? esc(s.guardianAddress||''):''}"></div>
+    </div>
     <div class="field"><label>Enrollment Date</label><input type="date" id="stEnroll" value="${editing? esc(s.enrollDate):''}"></div>
+    <div class="field"><label>Documents</label>
+      <input type="file" id="stDocFile" multiple>
+      <div id="stDocList" style="margin-top:8px;display:flex;flex-direction:column;gap:5px;">
+        ${editing && (s.documents||[]).length? s.documents.map((d,i)=>`
+          <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;">
+            <a href="${esc(d.url)}" target="_blank" style="color:var(--blue);text-decoration:underline;flex:1;">${esc(d.name)}</a>
+            <button type="button" class="btn small danger ghost" data-doc-remove="${i}">Remove</button>
+          </div>`).join('') : `<div class="muted" style="font-size:12px;">No documents uploaded yet.</div>`}
+      </div>
+    </div>
     <div class="modal-actions">
       ${editing? `<button class="btn danger ghost" id="stDelete" style="margin-right:auto;">Delete</button>`:''}
       <button class="btn ghost" data-close>Cancel</button>
@@ -1078,6 +1119,13 @@ function openStudentModal(studentId){
     </div>
   `);
   modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  let pendingDocs = editing ? [...(s.documents||[])] : [];
+  modalRoot.querySelector('#stType').onchange = e=>{
+    modalRoot.querySelector('#stPrevWrap').style.display = e.target.value==='New' ? 'block' : 'none';
+  };
+  modalRoot.querySelectorAll('[data-doc-remove]').forEach(b=>{
+    b.onclick = ()=>{ pendingDocs.splice(Number(b.dataset.docRemove),1); b.closest('div').remove(); };
+  });
   if(editing){
     modalRoot.querySelector('#stDelete').onclick = async ()=>{
       if(!confirm(`Remove ${s.name||s.id} from the directory? This cannot be undone.`)) return;
@@ -1090,28 +1138,106 @@ function openStudentModal(studentId){
   modalRoot.querySelector('#stSave').onclick = async ()=>{
     const name = modalRoot.querySelector('#stName').value.trim();
     if(!name){ toast('Please enter the student name'); return; }
-    if(editing){
-      s.name = name; s.gender = modalRoot.querySelector('#stGender').value; s.age = modalRoot.querySelector('#stAge').value;
-      s.status = modalRoot.querySelector('#stStatus').value; s.studentType = modalRoot.querySelector('#stType').value;
-      s.parent = modalRoot.querySelector('#stParent').value.trim();
-      s.contact = modalRoot.querySelector('#stContact').value.trim(); s.enrollDate = modalRoot.querySelector('#stEnroll').value;
-      const {error} = await sb.from('students').update(studentToRow(s)).eq('id', s.id);
-      if(error){ toast('Error: '+error.message); return; }
-    } else {
-      const classCode = modalRoot.querySelector('#stClass').value;
-      const newStudent = {
-        id: nextStudentId(classCode), name, classCode, gender: modalRoot.querySelector('#stGender').value,
-        age: modalRoot.querySelector('#stAge').value, status: modalRoot.querySelector('#stStatus').value,
+    const saveBtn = modalRoot.querySelector('#stSave'); saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    try{
+      const studentId2 = editing ? s.id : nextStudentId(modalRoot.querySelector('#stClass').value);
+      let photoUrl = editing ? (s.photoUrl||'') : '';
+      const photoFile = modalRoot.querySelector('#stPhotoFile').files[0];
+      if(photoFile){
+        const ext = photoFile.name.split('.').pop();
+        photoUrl = await uploadFile('student-photos', `${studentId2}.${ext}`, photoFile);
+      }
+      const docFiles = modalRoot.querySelector('#stDocFile').files;
+      for(const f of docFiles){
+        const path = `${studentId2}/${Date.now()}_${f.name}`;
+        const url = await uploadFile('documents', path, f);
+        pendingDocs.push({name:f.name, url, uploaded_at:new Date().toISOString()});
+      }
+      const common = {
+        name, gender: modalRoot.querySelector('#stGender').value, age: modalRoot.querySelector('#stAge').value,
+        dob: modalRoot.querySelector('#stDob').value, status: modalRoot.querySelector('#stStatus').value,
         studentType: modalRoot.querySelector('#stType').value,
+        previousSchool: modalRoot.querySelector('#stPrevSchool')?.value.trim()||'',
+        previousSchoolNotes: modalRoot.querySelector('#stPrevNotes')?.value.trim()||'',
         parent: modalRoot.querySelector('#stParent').value.trim(), contact: modalRoot.querySelector('#stContact').value.trim(),
-        enrollDate: modalRoot.querySelector('#stEnroll').value, s1Paid:0, s1Date:'', s1Receipt:'', s2Paid:0, s2Date:'', s2Receipt:'',
+        guardianAddress: modalRoot.querySelector('#stGAddr').value.trim(),
+        enrollDate: modalRoot.querySelector('#stEnroll').value, photoUrl, documents: pendingDocs,
       };
-      const {error} = await sb.from('students').insert(studentToRow(newStudent));
-      if(error){ toast('Error: '+error.message); return; }
-      STATE.students.push(newStudent);
+      if(editing){
+        Object.assign(s, common);
+        const {error} = await sb.from('students').update(studentToRow(s)).eq('id', s.id);
+        if(error){ toast('Error: '+error.message); return; }
+      } else {
+        const classCode = modalRoot.querySelector('#stClass').value;
+        const newStudent = {id: studentId2, classCode, s1Paid:0, s1Date:'', s1Receipt:'', s2Paid:0, s2Date:'', s2Receipt:'', ...common};
+        const {error} = await sb.from('students').insert(studentToRow(newStudent));
+        if(error){ toast('Error: '+error.message); return; }
+        STATE.students.push(newStudent);
+      }
+      closeModal(); render(); toast(editing? 'Student updated' : 'Student added');
+    }catch(err){
+      toast('Upload error: '+(err.message||err));
+    }finally{
+      saveBtn.disabled=false; saveBtn.textContent = editing?'Save Changes':'Add Student';
     }
-    closeModal(); render(); toast(editing? 'Student updated' : 'Student added');
   };
+}
+
+function openStudentProfileModal(studentId){
+  const s = STATE.students.find(x=>x.id===studentId);
+  if(!s) return;
+  const fin = calcFinance(s);
+  const hist = STATE.log.filter(l=>l.studentId===s.id && l.status==='approved').sort((a,b)=> new Date(b.date)-new Date(a.date));
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <div style="display:flex;gap:16px;align-items:flex-start;">
+      <div style="width:88px;height:88px;border-radius:12px;overflow:hidden;background:var(--paper-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:30px;color:var(--ink-soft);flex:none;">
+        ${s.photoUrl? `<img src="${esc(s.photoUrl)}" style="width:100%;height:100%;object-fit:cover;">` : '👤'}
+      </div>
+      <div>
+        <h3 style="margin-bottom:2px;">${esc(s.name)||'(unnamed)'}</h3>
+        <p class="mhint" style="margin:0;">${esc(s.id)} · ${esc(CLASS_LABEL[s.classCode]||s.classCode)} · ${(s.studentType||'New')==='New'?'New':'Old'} student</p>
+        <p class="mhint" style="margin:2px 0 0;">${badge(fin.status)}</p>
+      </div>
+    </div>
+    <div class="field2" style="margin-top:16px;">
+      <div><div class="mhint">Gender</div><div>${esc(s.gender)||'—'}</div></div>
+      <div><div class="mhint">Date of Birth</div><div>${esc(s.dob)||'—'}</div></div>
+    </div>
+    <div class="field2">
+      <div><div class="mhint">Parent / Guardian</div><div>${esc(s.parent)||'—'}</div></div>
+      <div><div class="mhint">Contact</div><div>${esc(s.contact)||'—'}</div></div>
+    </div>
+    <div><div class="mhint">Guardian Address</div><div>${esc(s.guardianAddress)||'—'}</div></div>
+    ${(s.studentType==='New' && (s.previousSchool||s.previousSchoolNotes))? `
+    <div class="field2">
+      <div><div class="mhint">Previous School</div><div>${esc(s.previousSchool)||'—'}</div></div>
+      <div><div class="mhint">Notes</div><div>${esc(s.previousSchoolNotes)||'—'}</div></div>
+    </div>`:''}
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
+      <div class="mhint" style="margin-bottom:6px;">Balances</div>
+      <div class="field2">
+        <div>S1: ${fmt(fin.s1Paid)} paid of ${fmt(fin.s1Due)} <span style="${fin.s1Bal>0?'color:var(--red)':''}">(${fmt(fin.s1Bal)} due)</span></div>
+        <div>S2: ${fmt(fin.s2Paid)} paid of ${fmt(fin.s2Due)} <span style="${fin.s2Bal>0?'color:var(--red)':''}">(${fmt(fin.s2Bal)} due)</span></div>
+      </div>
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
+      <div class="mhint" style="margin-bottom:6px;">Payment History</div>
+      ${hist.length? hist.map(l=>`<div style="font-size:12.5px;display:flex;justify-content:space-between;padding:3px 0;">
+          <span>${esc(l.date)} · S${l.semester} · ${esc(l.method)||'—'} · ${esc(l.receipt)}</span><span class="mono">${fmt(l.amount)}</span>
+        </div>`).join('') : `<div class="muted" style="font-size:12px;">No approved payments yet.</div>`}
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
+      <div class="mhint" style="margin-bottom:6px;">Documents</div>
+      ${(s.documents||[]).length? s.documents.map(d=>`<div style="font-size:12.5px;"><a href="${esc(d.url)}" target="_blank" style="color:var(--blue);text-decoration:underline;">${esc(d.name)}</a></div>`).join('') : `<div class="muted" style="font-size:12px;">No documents uploaded.</div>`}
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" data-close>Close</button>
+      ${can('manageStudents')? `<button class="btn" id="stpEdit">Edit Profile</button>`:''}
+    </div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  const editBtn = modalRoot.querySelector('#stpEdit'); if(editBtn) editBtn.onclick = ()=>openStudentModal(s.id);
 }
 
 function openPaymentModal(studentId){
