@@ -264,7 +264,7 @@ let STATE = {
   rankClass: CLASS_DEFS[0].code,
   rankPeriod: 'avgS1',
   teachersTab:'profiles',
-  outboxCount:0, offlineBoot:false,
+  outboxCount:0, offlineBoot:false, classTeachers:[],
 };
 
 /* ============================= ROW <-> APP MAPPING ============================= */
@@ -320,11 +320,13 @@ function gradeAvg(g, part){
 }
 function teacherFromRow(r){
   return {id:r.id, name:r.name, contact:r.contact, email:r.email, subjects:r.subjects||'', classes:r.classes||'',
-    hireDate:r.hire_date, status:r.status||'Active', baseSalary:Number(r.base_salary)||0};
+    hireDate:r.hire_date, status:r.status||'Active', baseSalary:Number(r.base_salary)||0,
+    photoUrl:r.photo_url||'', resumeUrl:r.resume_url||'', documents:r.documents||[]};
 }
 function teacherToRow(t){
   return {id:t.id, name:t.name, contact:t.contact||null, email:t.email||null, subjects:t.subjects||'', classes:t.classes||'',
-    hire_date:t.hireDate||null, status:t.status||'Active', base_salary:Number(t.baseSalary)||0};
+    hire_date:t.hireDate||null, status:t.status||'Active', base_salary:Number(t.baseSalary)||0,
+    photo_url:t.photoUrl||null, resume_url:t.resumeUrl||null, documents:t.documents||[]};
 }
 function paymentFromRow(r){
   return {id:r.id, teacherId:r.teacher_id, teacherName:r.teacher_name, month:r.month, gross:Number(r.gross)||0,
@@ -466,12 +468,14 @@ async function loadAllData(){
     STATE.grades = (gradesData||[]).map(gradeFromRow);
   }
   if(can('manageTeachers')){
-    const [teachersRes, payRes] = await Promise.all([
+    const [teachersRes, payRes, ctRes] = await Promise.all([
       sb.from('teachers').select('*').order('name'),
       sb.from('teacher_payments').select('*').order('month', {ascending:false}),
+      sb.from('class_teachers').select('*').eq('academic_year_id','ay_1'),
     ]);
     STATE.teachers = (teachersRes.data||[]).map(teacherFromRow);
     STATE.teacherPayments = (payRes.data||[]).map(paymentFromRow);
+    STATE.classTeachers = ctRes.data||[];
   }
   STATE.outboxCount = (await getOutbox()).length;
   await cacheSnapshot();
@@ -1506,29 +1510,95 @@ function renderTeacherProfiles(main){
     <div class="panel" style="overflow-x:auto;">
       <div style="display:flex;justify-content:flex-end;margin-bottom:10px;"><button class="btn" data-action="add-teacher">+ Add Teacher</button></div>
       ${list.length===0? `<p class="muted" style="font-size:13px;">No teachers added yet.</p>` : `
-      <table><thead><tr><th>ID</th><th>Name</th><th>Subjects</th><th>Classes</th><th class="tright">Base Salary</th><th>Status</th><th></th></tr></thead>
-        <tbody>${list.map(t=>`<tr><td class="mono">${esc(t.id)}</td><td>${esc(t.name)}</td><td class="muted">${esc(t.subjects)||'—'}</td><td class="muted">${esc(t.classes)||'—'}</td><td class="tright mono">${fmt(t.baseSalary)}</td><td><span class="badge ${t.status==='Active'?'role':'inactive'}">${esc(t.status)}</span></td>
-          <td style="white-space:nowrap;"><button class="btn ghost" data-pay="${t.id}">Pay Salary</button> <button class="btn ghost" data-edit-t="${t.id}">Edit</button></td></tr>`).join('')}</tbody></table>`}
+      <table><thead><tr><th></th><th>ID</th><th>Name</th><th>Subjects</th><th>Classes</th><th class="tright">Base Salary</th><th>Status</th><th></th></tr></thead>
+        <tbody>${list.map(t=>{
+          const assigned = STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).map(ct=>ct.class_code);
+          return `<tr>
+            <td><div style="width:30px;height:30px;border-radius:7px;overflow:hidden;background:var(--paper-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ink-soft);">${t.photoUrl?`<img src="${esc(t.photoUrl)}" style="width:100%;height:100%;object-fit:cover;">`:'👤'}</div></td>
+            <td class="mono">${esc(t.id)}</td>
+            <td><a href="#" data-tprofile="${t.id}" style="color:inherit;text-decoration:none;border-bottom:1px dotted var(--ink-soft);">${esc(t.name)}</a></td>
+            <td class="muted">${esc(t.subjects)||'—'}</td><td class="muted">${assigned.length? esc(assigned.join(', ')) : (esc(t.classes)||'—')}</td>
+            <td class="tright mono">${fmt(t.baseSalary)}</td><td><span class="badge ${t.status==='Active'?'role':'inactive'}">${esc(t.status)}</span></td>
+            <td style="white-space:nowrap;"><button class="btn ghost" data-pay="${t.id}">Pay Salary</button> <button class="btn ghost" data-edit-t="${t.id}">Edit</button></td></tr>`;
+        }).join('')}</tbody></table>`}
     </div>
   `;
   main.querySelector('[data-action="add-teacher"]').onclick = ()=> openTeacherModal(null);
   main.querySelectorAll('[data-edit-t]').forEach(b=> b.onclick = ()=> openTeacherModal(b.dataset.editT));
   main.querySelectorAll('[data-pay]').forEach(b=> b.onclick = ()=> openSalaryModal(b.dataset.pay));
+  main.querySelectorAll('[data-tprofile]').forEach(a=> a.onclick = (e)=>{ e.preventDefault(); openTeacherProfileModal(a.dataset.tprofile); });
+}
+
+function openTeacherProfileModal(teacherId){
+  const t = STATE.teachers.find(x=>x.id===teacherId);
+  if(!t) return;
+  const assigned = STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).map(ct=>CLASS_LABEL[ct.class_code]||ct.class_code);
+  const pays = STATE.teacherPayments.filter(p=>p.teacherId===t.id).sort((a,b)=> new Date(b.month)-new Date(a.month));
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <div style="display:flex;gap:16px;align-items:flex-start;">
+      <div style="width:88px;height:88px;border-radius:12px;overflow:hidden;background:var(--paper-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:30px;color:var(--ink-soft);flex:none;">
+        ${t.photoUrl? `<img src="${esc(t.photoUrl)}" style="width:100%;height:100%;object-fit:cover;">` : '👤'}
+      </div>
+      <div>
+        <h3 style="margin-bottom:2px;">${esc(t.name)}</h3>
+        <p class="mhint" style="margin:0;">${esc(t.id)} · ${esc(t.subjects)||'No subjects listed'}</p>
+        <p class="mhint" style="margin:2px 0 0;"><span class="badge ${t.status==='Active'?'role':'inactive'}">${esc(t.status)}</span></p>
+      </div>
+    </div>
+    <div class="field2" style="margin-top:16px;">
+      <div><div class="mhint">Contact</div><div>${esc(t.contact)||'—'}</div></div>
+      <div><div class="mhint">Email</div><div>${esc(t.email)||'—'}</div></div>
+    </div>
+    <div class="field2">
+      <div><div class="mhint">Hire Date</div><div>${esc(t.hireDate)||'—'}</div></div>
+      <div><div class="mhint">Base Monthly Salary</div><div>${fmt(t.baseSalary)}</div></div>
+    </div>
+    <div><div class="mhint">Classes Assigned</div><div>${assigned.length? esc(assigned.join(', ')) : '—'}</div></div>
+    ${t.resumeUrl? `<div style="margin-top:10px;"><a href="${esc(t.resumeUrl)}" target="_blank" class="btn ghost small">View Resume / CV</a></div>`:''}
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
+      <div class="mhint" style="margin-bottom:6px;">Recent Salary Payments</div>
+      ${pays.length? pays.slice(0,6).map(p=>`<div style="font-size:12.5px;display:flex;justify-content:space-between;padding:3px 0;"><span>${esc(p.month)}</span><span class="mono">${fmt(p.net)}</span></div>`).join('') : `<div class="muted" style="font-size:12px;">No payments recorded yet.</div>`}
+    </div>
+    <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
+      <div class="mhint" style="margin-bottom:6px;">Documents</div>
+      ${(t.documents||[]).length? t.documents.map(d=>`<div style="font-size:12.5px;"><a href="${esc(d.url)}" target="_blank" style="color:var(--blue);text-decoration:underline;">${esc(d.name)}</a></div>`).join('') : `<div class="muted" style="font-size:12px;">No documents uploaded.</div>`}
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" data-close>Close</button>
+      <button class="btn" id="tpEdit">Edit Profile</button>
+    </div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#tpEdit').onclick = ()=>openTeacherModal(t.id);
 }
 
 function openTeacherModal(teacherId){
   const editing = !!teacherId;
   const t = editing ? STATE.teachers.find(x=>x.id===teacherId) : null;
+  const assignedNow = editing ? new Set(STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).map(ct=>ct.class_code)) : new Set();
   openModal(`
     <button class="close-x" data-close>×</button>
     <h3>${editing? 'Edit Teacher':'Add Teacher'}</h3>
+    <div class="field2" style="align-items:flex-end;">
+      <div class="field" style="flex:0 0 84px;"><label>Photo</label>
+        <div id="tPhotoPreview" style="width:76px;height:76px;border-radius:10px;overflow:hidden;background:var(--paper-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--ink-soft);">
+          ${editing && t.photoUrl? `<img src="${esc(t.photoUrl)}" style="width:100%;height:100%;object-fit:cover;">` : '👤'}
+        </div>
+      </div>
+      <div class="field"><label>Upload / Replace Photo</label><input type="file" id="tPhotoFile" accept="image/*"></div>
+    </div>
     <div class="field"><label>Full Name</label><input type="text" id="tName" value="${editing?esc(t.name):''}" placeholder="e.g. Mary Kollie"></div>
     <div class="field2">
       <div class="field"><label>Contact / Phone</label><input type="text" id="tContact" value="${editing?esc(t.contact||''):''}"></div>
       <div class="field"><label>Email</label><input type="text" id="tEmail" value="${editing?esc(t.email||''):''}"></div>
     </div>
     <div class="field"><label>Subjects Teaching</label><input type="text" id="tSubjects" value="${editing?esc(t.subjects||''):''}" placeholder="e.g. Mathematics, Physics"></div>
-    <div class="field"><label>Classes Assigned</label><input type="text" id="tClasses" value="${editing?esc(t.classes||''):''}" placeholder="e.g. G9, G10, G11"></div>
+    <div class="field"><label>Classes Assigned</label>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:10px;background:var(--paper-2);border-radius:8px;border:1px solid var(--line);">
+        ${CLASS_DEFS.map(c=>`<label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:400;"><input type="checkbox" class="tClassBox" value="${c.code}" ${assignedNow.has(c.code)?'checked':''}> ${esc(c.code)}</label>`).join('')}
+      </div>
+    </div>
     <div class="field2">
       <div class="field"><label>Base Monthly Salary (LRD)</label><input type="number" min="0" id="tSalary" value="${editing?t.baseSalary:0}"></div>
       <div class="field"><label>Status</label><select id="tStatus">
@@ -1537,26 +1607,72 @@ function openTeacherModal(teacherId){
       </select></div>
     </div>
     <div class="field"><label>Hire Date</label><input type="date" id="tHire" value="${editing&&t.hireDate?t.hireDate:''}"></div>
+    <div class="field"><label>Resume / CV</label>
+      <input type="file" id="tResumeFile" accept=".pdf,.doc,.docx">
+      ${editing && t.resumeUrl? `<div style="margin-top:6px;font-size:12.5px;"><a href="${esc(t.resumeUrl)}" target="_blank" style="color:var(--blue);text-decoration:underline;">Current resume on file</a></div>`:''}
+    </div>
+    <div class="field"><label>Other Documents</label>
+      <input type="file" id="tDocFile" multiple>
+      <div id="tDocList" style="margin-top:8px;display:flex;flex-direction:column;gap:5px;">
+        ${editing && (t.documents||[]).length? t.documents.map((d,i)=>`
+          <div style="display:flex;align-items:center;gap:8px;font-size:12.5px;">
+            <a href="${esc(d.url)}" target="_blank" style="color:var(--blue);text-decoration:underline;flex:1;">${esc(d.name)}</a>
+            <button type="button" class="btn small danger ghost" data-tdoc-remove="${i}">Remove</button>
+          </div>`).join('') : `<div class="muted" style="font-size:12px;">No documents uploaded yet.</div>`}
+      </div>
+    </div>
     <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="tSave">${editing?'Save Changes':'Add Teacher'}</button></div>
   `);
   modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  let pendingTDocs = editing ? [...(t.documents||[])] : [];
+  modalRoot.querySelectorAll('[data-tdoc-remove]').forEach(b=>{
+    b.onclick = ()=>{ pendingTDocs.splice(Number(b.dataset.tdocRemove),1); b.closest('div').remove(); };
+  });
   modalRoot.querySelector('#tSave').onclick = async ()=>{
     const name = modalRoot.querySelector('#tName').value.trim();
     if(!name){ toast("Enter the teacher's name"); return; }
-    const payload = {
-      id: editing? t.id : nextTeacherId(), name,
-      contact: modalRoot.querySelector('#tContact').value.trim(),
-      email: modalRoot.querySelector('#tEmail').value.trim(),
-      subjects: modalRoot.querySelector('#tSubjects').value.trim(),
-      classes: modalRoot.querySelector('#tClasses').value.trim(),
-      baseSalary: Number(modalRoot.querySelector('#tSalary').value)||0,
-      status: modalRoot.querySelector('#tStatus').value,
-      hireDate: modalRoot.querySelector('#tHire').value,
-    };
-    const {error} = editing ? await sb.from('teachers').update(teacherToRow(payload)).eq('id', payload.id) : await sb.from('teachers').insert(teacherToRow(payload));
-    if(error){ toast('Error: '+error.message); return; }
-    if(editing){ Object.assign(t, payload); } else { STATE.teachers.push(payload); }
-    closeModal(); render(); toast(editing? 'Teacher updated' : 'Teacher added');
+    const saveBtn = modalRoot.querySelector('#tSave'); saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    try{
+      const teacherId2 = editing? t.id : nextTeacherId();
+      let photoUrl = editing ? (t.photoUrl||'') : '';
+      const photoFile = modalRoot.querySelector('#tPhotoFile').files[0];
+      if(photoFile){ const ext = photoFile.name.split('.').pop(); photoUrl = await uploadFile('teacher-photos', `${teacherId2}.${ext}`, photoFile); }
+      let resumeUrl = editing ? (t.resumeUrl||'') : '';
+      const resumeFile = modalRoot.querySelector('#tResumeFile').files[0];
+      if(resumeFile){ resumeUrl = await uploadFile('documents', `${teacherId2}/resume_${Date.now()}_${resumeFile.name}`, resumeFile); }
+      const docFiles = modalRoot.querySelector('#tDocFile').files;
+      for(const f of docFiles){
+        const url = await uploadFile('documents', `${teacherId2}/${Date.now()}_${f.name}`, f);
+        pendingTDocs.push({name:f.name, url, uploaded_at:new Date().toISOString()});
+      }
+      const selectedClasses = [...modalRoot.querySelectorAll('.tClassBox:checked')].map(cb=>cb.value);
+      const payload = {
+        id: teacherId2, name,
+        contact: modalRoot.querySelector('#tContact').value.trim(),
+        email: modalRoot.querySelector('#tEmail').value.trim(),
+        subjects: modalRoot.querySelector('#tSubjects').value.trim(),
+        classes: selectedClasses.join(', '),
+        baseSalary: Number(modalRoot.querySelector('#tSalary').value)||0,
+        status: modalRoot.querySelector('#tStatus').value,
+        hireDate: modalRoot.querySelector('#tHire').value,
+        photoUrl, resumeUrl, documents: pendingTDocs,
+      };
+      const {error} = editing ? await sb.from('teachers').update(teacherToRow(payload)).eq('id', payload.id) : await sb.from('teachers').insert(teacherToRow(payload));
+      if(error){ toast('Error: '+error.message); return; }
+      await sb.from('class_teachers').delete().eq('teacher_id', teacherId2).eq('academic_year_id','ay_1');
+      if(selectedClasses.length){
+        const rows = selectedClasses.map(cc=>({id:`ct_${teacherId2}_${cc}`, academic_year_id:'ay_1', class_code:cc, teacher_id:teacherId2}));
+        await sb.from('class_teachers').insert(rows);
+      }
+      STATE.classTeachers = STATE.classTeachers.filter(ct=>ct.teacher_id!==teacherId2);
+      selectedClasses.forEach(cc=> STATE.classTeachers.push({id:`ct_${teacherId2}_${cc}`, academic_year_id:'ay_1', class_code:cc, teacher_id:teacherId2}));
+      if(editing){ Object.assign(t, payload); } else { STATE.teachers.push(payload); }
+      closeModal(); render(); toast(editing? 'Teacher updated' : 'Teacher added');
+    }catch(err){
+      toast('Upload error: '+(err.message||err));
+    }finally{
+      saveBtn.disabled=false; saveBtn.textContent = editing?'Save Changes':'Add Teacher';
+    }
   };
 }
 
