@@ -167,10 +167,28 @@
     .stat-row{grid-template-columns:1fr 1fr;}
     .school-info-grid{grid-template-columns:1fr;}
   }
+  #printSheet{display:none;}
+  .ps-page{width:100%;max-width:760px;margin:0 auto;font-family:'Inter',sans-serif;color:#111;}
+  .ps-head{text-align:center;border-bottom:2px solid #132340;padding-bottom:10px;margin-bottom:14px;}
+  .ps-head h1{font-family:'Fraunces',serif;font-size:20px;margin:0 0 2px;}
+  .ps-head div{font-size:12px;color:#444;}
+  .ps-title{text-align:center;font-weight:700;letter-spacing:.06em;text-transform:uppercase;font-size:13px;margin-bottom:14px;}
+  .ps-meta{display:grid;grid-template-columns:1fr 1fr;gap:4px 20px;font-size:12.5px;margin-bottom:14px;}
+  .ps-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:10px;}
+  .ps-table th,.ps-table td{border:1px solid #999;padding:4px 6px;}
+  .ps-table th{background:#eee;}
+  .ps-foot{margin-top:26px;display:flex;justify-content:space-between;font-size:12px;}
+  .ps-sig{border-top:1px solid #333;padding-top:4px;width:180px;text-align:center;}
+  @media print{
+    body > *:not(#printSheet){display:none!important;}
+    #printSheet{display:block!important;}
+    @page{margin:14mm;}
+  }
 </style>
 </head>
 <body>
 <div id="root"></div>
+<div id="printSheet"></div>
 
 <script>
 /* ============================================================
@@ -227,7 +245,7 @@ const DEFAULT_FEES = {
   G11: mkFees(1800,1800,600,500,300,450,200),
   G12: mkFees(2000,2000,600,600,300,450,200),
 };
-const DEFAULT_SCHOOL_INFO = {name:'', county:'', year:'2025/2026', principal:'', bursar:'', activated:''};
+const DEFAULT_SCHOOL_INFO = {name:'', address:'', county:'', year:'2025/2026', principal:'', bursar:'', activated:''};
 const DEFAULT_TAX_BRACKETS = [
   {min:0, max:5000, rate:0},
   {min:5000, max:15000, rate:5},
@@ -1034,6 +1052,7 @@ function openSchoolInfoModal(){
     <h3>School Information</h3><p class="mhint">Shown across the ledger and on the dashboard.</p>
     <div class="school-info-grid">
       <div class="field"><label>School Name</label><input type="text" id="siName" value="${esc(s.name)}" ${editable?'':'disabled'}></div>
+      <div class="field"><label>Address</label><input type="text" id="siAddress" value="${esc(s.address||'')}" ${editable?'':'disabled'}></div>
       <div class="field"><label>County / Location</label><input type="text" id="siCounty" value="${esc(s.county)}" ${editable?'':'disabled'}></div>
       <div class="field"><label>Academic Year</label><input type="text" id="siYear" value="${esc(s.year)}" ${editable?'':'disabled'}></div>
       <div class="field"><label>Principal</label><input type="text" id="siPrincipal" value="${esc(s.principal)}" ${editable?'':'disabled'}></div>
@@ -1046,7 +1065,8 @@ function openSchoolInfoModal(){
   const saveBtn = modalRoot.querySelector('#siSave');
   if(saveBtn) saveBtn.onclick = async ()=>{
     STATE.schoolInfo = {
-      name: modalRoot.querySelector('#siName').value.trim(), county: modalRoot.querySelector('#siCounty').value.trim(),
+      name: modalRoot.querySelector('#siName').value.trim(), address: modalRoot.querySelector('#siAddress').value.trim(),
+      county: modalRoot.querySelector('#siCounty').value.trim(),
       year: modalRoot.querySelector('#siYear').value.trim(), principal: modalRoot.querySelector('#siPrincipal').value.trim(),
       bursar: modalRoot.querySelector('#siBursar').value.trim(), activated: modalRoot.querySelector('#siActivated').value,
     };
@@ -1236,12 +1256,14 @@ function openStudentProfileModal(studentId){
       ${(s.documents||[]).length? s.documents.map(d=>`<div style="font-size:12.5px;"><a href="${esc(d.url)}" target="_blank" style="color:var(--blue);text-decoration:underline;">${esc(d.name)}</a></div>`).join('') : `<div class="muted" style="font-size:12px;">No documents uploaded.</div>`}
     </div>
     <div class="modal-actions">
+      <button class="btn ghost" id="stpGrade">Grade Sheet</button>
       <button class="btn ghost" data-close>Close</button>
       ${can('manageStudents')? `<button class="btn" id="stpEdit">Edit Profile</button>`:''}
     </div>
   `);
   modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
   const editBtn = modalRoot.querySelector('#stpEdit'); if(editBtn) editBtn.onclick = ()=>openStudentModal(s.id);
+  modalRoot.querySelector('#stpGrade').onclick = ()=>{ closeModal(); openGradeSheet(s.id); };
 }
 
 function openPaymentModal(studentId){
@@ -1346,13 +1368,70 @@ function renderReportCards(main){
           const s2s = g.map(x=>gradeAvg(x,'s2')).filter(v=>v!==null);
           const a1 = s1s.length? (s1s.reduce((a,v)=>a+v,0)/s1s.length).toFixed(1) : '—';
           const a2 = s2s.length? (s2s.reduce((a,v)=>a+v,0)/s2s.length).toFixed(1) : '—';
-          return `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.name)||'<span class="muted">(unnamed)</span>'}</td><td class="tright">${g.length}</td><td class="tright mono">${a1}</td><td class="tright mono">${a2}</td><td><button class="btn ghost" data-grade="${s.id}">Report Card</button></td></tr>`;
+          return `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.name)||'<span class="muted">(unnamed)</span>'}</td><td class="tright">${g.length}</td><td class="tright mono">${a1}</td><td class="tright mono">${a2}</td><td style="white-space:nowrap;"><button class="btn ghost" data-grade="${s.id}">Edit</button> <button class="btn ghost" data-gradesheet="${s.id}">Print / Download</button></td></tr>`;
         }).join('')}</tbody></table>`}
     </div>
     <p class="muted" style="font-size:12px;">Only Admin accounts can view or edit grades — Bursars and Viewers have no access to this section.</p>
   `;
   main.querySelector('#gClass').onchange = e=>{ STATE.gradesClass = e.target.value; render(); };
   main.querySelectorAll('[data-grade]').forEach(b=> b.onclick = ()=> openGradesModal(b.dataset.grade));
+  main.querySelectorAll('[data-gradesheet]').forEach(b=> b.onclick = ()=> openGradeSheet(b.dataset.gradesheet));
+}
+
+function printSheet(html){
+  document.getElementById('printSheet').innerHTML = html;
+  setTimeout(()=> window.print(), 50);
+}
+function openGradeSheet(studentId){
+  const s = STATE.students.find(x=>x.id===studentId);
+  if(!s) return;
+  const rows = STATE.grades.filter(g=>g.studentId===studentId).sort((a,b)=>(a.subject||'').localeCompare(b.subject||''));
+  const si = STATE.schoolInfo;
+  const avgOf = (keyList)=>{
+    const vals = rows.map(g=>gradeAvg(g, keyList)).filter(v=>v!==null);
+    return vals.length? (vals.reduce((a,v)=>a+v,0)/vals.length).toFixed(1) : '—';
+  };
+  const rowsHtml = rows.length ? rows.map(r=>`
+    <tr>
+      <td>${esc(r.subject)}</td>
+      ${GRADE_COLS_S1.map(([k])=>`<td class="tcenter">${r[k]??'—'}</td>`).join('')}
+      <td class="tcenter"><b>${gradeAvg(r,'s1')!==null?gradeAvg(r,'s1').toFixed(1):'—'}</b></td>
+      ${GRADE_COLS_S2.map(([k])=>`<td class="tcenter">${r[k]??'—'}</td>`).join('')}
+      <td class="tcenter"><b>${gradeAvg(r,'s2')!==null?gradeAvg(r,'s2').toFixed(1):'—'}</b></td>
+    </tr>`).join('') : `<tr><td colspan="11" class="tcenter" style="color:#888;">No grades recorded yet</td></tr>`;
+  printSheet(`
+    <div class="ps-page">
+      <div class="ps-head">
+        <h1>${esc(si.name)||'School Name'}</h1>
+        <div>${esc(si.address)||''}${si.address&&si.county?' · ':''}${esc(si.county)||''}</div>
+        <div>Academic Year ${esc(si.year)}</div>
+      </div>
+      <div class="ps-title">Student Grade Sheet</div>
+      <div class="ps-meta">
+        <div><b>Name:</b> ${esc(s.name)}</div>
+        <div><b>Student ID:</b> ${esc(s.id)}</div>
+        <div><b>Class:</b> ${esc(CLASS_LABEL[s.classCode]||s.classCode)}</div>
+        <div><b>Gender:</b> ${esc(s.gender)||'—'}</div>
+        <div><b>Date of Birth:</b> ${esc(s.dob)||'—'}</div>
+        <div><b>Parent/Guardian:</b> ${esc(s.parent)||'—'}</div>
+      </div>
+      <table class="ps-table">
+        <thead>
+          <tr><th rowspan="2" style="text-align:left;">Subject</th><th colspan="4" class="tcenter">Semester 1</th><th rowspan="2">Avg</th><th colspan="4" class="tcenter">Semester 2</th><th rowspan="2">Avg</th></tr>
+          <tr>${GRADE_COLS_S1.map(([k,lbl])=>`<th>${lbl}</th>`).join('')}${GRADE_COLS_S2.map(([k,lbl])=>`<th>${lbl}</th>`).join('')}</tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <div class="ps-meta">
+        <div><b>Semester 1 Overall Average:</b> ${avgOf('s1')}</div>
+        <div><b>Semester 2 Overall Average:</b> ${avgOf('s2')}</div>
+      </div>
+      <div class="ps-foot">
+        <div class="ps-sig">${esc(si.principal)||''}<br>Principal</div>
+        <div class="ps-sig">${esc(si.bursar)||''}<br>Registrar / Bursar</div>
+      </div>
+    </div>
+  `);
 }
 
 function openGradesModal(studentId){
@@ -1408,9 +1487,10 @@ function openGradesModal(studentId){
       </table>
       </div>
       <button class="btn ghost" id="gAddRow" style="margin-top:10px;">+ Add Subject</button>
-      <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="gSave">Save Report Card</button></div>
+      <div class="modal-actions"><button class="btn ghost" id="gPrint">Print / Download Sheet</button><button class="btn ghost" data-close>Cancel</button><button class="btn" id="gSave">Save Report Card</button></div>
     `, 'wide');
     modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+    modalRoot.querySelector('#gPrint').onclick = ()=> openGradeSheet(studentId);
     modalRoot.querySelector('#gAddRow').onclick = ()=>{ syncRows(); rows.push(BLANK_GRADE_ROW(studentId)); draw(); };
     modalRoot.querySelectorAll('[data-remove]').forEach(b=>{
       b.onclick = ()=>{ syncRows(); rows.splice(Number(b.dataset.remove),1); if(rows.length===0) rows=[BLANK_GRADE_ROW(studentId)]; draw(); };
