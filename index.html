@@ -1271,7 +1271,6 @@ function openPaymentModal(studentId){
   const s = STATE.students.find(x=>x.id===studentId);
   if(!s) return;
   const fin = calcFinance(s);
-  const receiptNo = 'RCT-' + String(STATE.receiptCounter||1).padStart(6,'0');
   openModal(`
     <button class="close-x" data-close>×</button>
     <h3>Record Payment</h3>
@@ -1283,10 +1282,10 @@ function openPaymentModal(studentId){
       <div class="field"><label>Date</label><input type="date" id="pDate" value="${new Date().toISOString().slice(0,10)}"></div>
     </div>
     <div class="field2">
-      <div class="field"><label>Receipt No. (auto-generated)</label><input type="text" id="pReceipt" value="${receiptNo}" disabled style="font-weight:700;color:var(--navy);"></div>
+      <div class="field"><label>Receipt No.</label><input type="text" id="pReceipt" value="Assigned when submitted" disabled style="font-weight:700;color:var(--navy);"></div>
       <div class="field"><label>Method</label><select id="pMethod"><option>Cash</option><option>Mobile Money</option><option>Bank Transfer</option><option>Cheque</option></select></div>
     </div>
-    <p class="muted" style="font-size:11.5px;margin-top:-6px;">Write this receipt number on the physical receipt you give the payer. It's generated automatically and can't be typed or edited.</p>
+    <p class="muted" style="font-size:11.5px;margin-top:-6px;">The receipt number is assigned by the system the moment you submit, so two payments can never share a number. Write it on the physical receipt after submitting.</p>
     <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="pSave">Submit for Approval</button></div>
   `);
   modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
@@ -1297,13 +1296,14 @@ function openPaymentModal(studentId){
     const date = modalRoot.querySelector('#pDate').value || new Date().toISOString().slice(0,10);
     const method = modalRoot.querySelector('#pMethod').value;
     const offline = !navigator.onLine;
-    const receipt = offline ? ('OFF-'+Date.now().toString(36).toUpperCase()) : receiptNo;
-    const entry = {
-      logId: 'l'+Date.now()+Math.random().toString(36).slice(2,7),
-      date, studentId: s.id, name: s.name, classCode: s.classCode, semester: sem, amount, method, receipt,
-      status:'pending', submittedBy: STATE.currentUser.id, submittedByName: STATE.currentUser.fullName, submittedAt: new Date().toISOString(),
-    };
+    const saveBtn = modalRoot.querySelector('#pSave'); saveBtn.disabled = true;
     if(offline){
+      const receipt = 'OFF-'+Date.now().toString(36).toUpperCase();
+      const entry = {
+        logId: 'l'+Date.now()+Math.random().toString(36).slice(2,7),
+        date, studentId: s.id, name: s.name, classCode: s.classCode, semester: sem, amount, method, receipt,
+        status:'pending', submittedBy: STATE.currentUser.id, submittedByName: STATE.currentUser.fullName, submittedAt: new Date().toISOString(),
+      };
       await queueOfflinePayment(entry);
       STATE.log.push(entry);
       await cacheSnapshot();
@@ -1312,17 +1312,29 @@ function openPaymentModal(studentId){
       return;
     }
     try{
+      // Ask the database for the next receipt number atomically — it increments
+      // and returns the counter in one step, so concurrent submissions can never collide.
+      const {data: counterVal, error: rpcErr} = await sb.rpc('next_receipt_number');
+      if(rpcErr){ toast('Error assigning receipt number: '+rpcErr.message); saveBtn.disabled=false; return; }
+      const receipt = 'RCT-' + String(counterVal).padStart(6,'0');
+      const entry = {
+        logId: 'l'+Date.now()+Math.random().toString(36).slice(2,7),
+        date, studentId: s.id, name: s.name, classCode: s.classCode, semester: sem, amount, method, receipt,
+        status:'pending', submittedBy: STATE.currentUser.id, submittedByName: STATE.currentUser.fullName, submittedAt: new Date().toISOString(),
+      };
       const {error} = await sb.from('payment_log').insert(logToRow(entry));
-      if(error){ toast('Error: '+error.message); return; }
+      if(error){ toast('Error: '+error.message); saveBtn.disabled=false; return; }
       STATE.log.push(entry);
-      const nextCounter = (STATE.receiptCounter||1)+1;
-      const {error:cErr} = await sb.from('school_config').update({receipt_counter: nextCounter}).eq('id',1);
-      if(!cErr) STATE.receiptCounter = nextCounter;
+      STATE.receiptCounter = counterVal;
       await cacheSnapshot();
       closeModal(); render(); toast(`Payment of ${fmt(amount)} submitted — Receipt ${receipt}`);
     }catch(networkErr){
       const offReceipt = 'OFF-'+Date.now().toString(36).toUpperCase();
-      entry.receipt = offReceipt;
+      const entry = {
+        logId: 'l'+Date.now()+Math.random().toString(36).slice(2,7),
+        date, studentId: s.id, name: s.name, classCode: s.classCode, semester: sem, amount, method, receipt: offReceipt,
+        status:'pending', submittedBy: STATE.currentUser.id, submittedByName: STATE.currentUser.fullName, submittedAt: new Date().toISOString(),
+      };
       await queueOfflinePayment(entry);
       STATE.log.push(entry);
       await cacheSnapshot();
