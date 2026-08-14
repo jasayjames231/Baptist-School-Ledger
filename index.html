@@ -348,14 +348,14 @@ function gradeFromRow(r){
   return {id:r.id, studentId:r.student_id, subject:r.subject,
     p1:r.p1, p2:r.p2, p3:r.p3, examS1:r.exam_s1,
     p4:r.p4, p5:r.p5, p6:r.p6, examS2:r.exam_s2,
-    remarks:r.remarks, updatedByName:r.updated_by_name, updatedAt:r.updated_at};
+    remarks:r.remarks, updatedByName:r.updated_by_name, updatedAt:r.updated_at, academicYearId:r.academic_year_id};
 }
 function gradeToRow(g){
   return {id:g.id, student_id:g.studentId, subject:g.subject,
     p1:numOrNull(g.p1), p2:numOrNull(g.p2), p3:numOrNull(g.p3), exam_s1:numOrNull(g.examS1),
     p4:numOrNull(g.p4), p5:numOrNull(g.p5), p6:numOrNull(g.p6), exam_s2:numOrNull(g.examS2),
     remarks:g.remarks||null, updated_by:g.updatedBy||null, updated_by_name:g.updatedByName||null, updated_at:g.updatedAt||new Date().toISOString(),
-    school_id: STATE.currentUser.schoolId};
+    academic_year_id: STATE.currentAcademicYearId, school_id: STATE.currentUser.schoolId};
 }
 function numOrNull(v){ return (v===''||v===null||v===undefined) ? null : Number(v); }
 function gradeAvg(g, part){
@@ -528,7 +528,7 @@ async function loadAllData(){
   STATE.log = (logRes.data||[]).map(logFromRow);
   STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, createdAt:r.created_at}));
   if(can('manageGrades')){
-    const {data:gradesData} = await sb.from('grades').select('*').order('subject');
+    const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId).order('subject');
     STATE.grades = (gradesData||[]).map(gradeFromRow);
   }
   if(can('manageTeachers')){
@@ -1729,7 +1729,7 @@ function openGradesModal(studentId){
       const existingBefore = STATE.grades.filter(g=>g.studentId===studentId);
       const keepIds = new Set();
       for(const r of clean){
-        const id = studentId + '::' + slugify(r.subject);
+        const id = studentId + '::' + STATE.currentAcademicYearId + '::' + slugify(r.subject);
         keepIds.add(id);
         const g = {id, studentId, subject:r.subject.trim(), p1:r.p1, p2:r.p2, p3:r.p3, examS1:r.examS1, p4:r.p4, p5:r.p5, p6:r.p6, examS2:r.examS2,
           remarks:r.remarks, updatedBy:STATE.currentUser.id, updatedByName:STATE.currentUser.fullName, updatedAt:new Date().toISOString()};
@@ -1739,7 +1739,7 @@ function openGradesModal(studentId){
       const toDelete = existingBefore.filter(g=>!keepIds.has(g.id));
       for(const g of toDelete){ await sb.from('grades').delete().eq('id', g.id); }
       STATE.grades = STATE.grades.filter(g=>g.studentId!==studentId).concat(clean.map(r=>({
-        id: studentId+'::'+slugify(r.subject), studentId, subject:r.subject.trim(), p1:r.p1,p2:r.p2,p3:r.p3,examS1:r.examS1,p4:r.p4,p5:r.p5,p6:r.p6,examS2:r.examS2,
+        id: studentId+'::'+STATE.currentAcademicYearId+'::'+slugify(r.subject), studentId, subject:r.subject.trim(), p1:r.p1,p2:r.p2,p3:r.p3,examS1:r.examS1,p4:r.p4,p5:r.p5,p6:r.p6,examS2:r.examS2,
         remarks:r.remarks, updatedByName: STATE.currentUser.fullName, updatedAt: new Date().toISOString(),
       })));
       closeModal(); render(); toast('Report card saved');
