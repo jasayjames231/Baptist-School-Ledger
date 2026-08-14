@@ -296,6 +296,21 @@ let STATE = {
 };
 
 /* ============================= ROW <-> APP MAPPING ============================= */
+function enrollmentFromRow(r){
+  return {enrollmentId:r.id, studentId:r.student_id, academicYearId:r.academic_year_id, classCode:r.class_code,
+    studentType:r.student_type||'New', status:r.status||'Active',
+    s1Paid:Number(r.s1_paid)||0, s1Date:r.s1_date, s1Receipt:r.s1_receipt,
+    s2Paid:Number(r.s2_paid)||0, s2Date:r.s2_date, s2Receipt:r.s2_receipt,
+    carriedForwardOriginal:Number(r.carried_forward_original)||0, carriedForwardBalance:Number(r.carried_forward_balance)||0};
+}
+function enrollmentToRow(s, ayId){
+  return {id:s.enrollmentId, student_id:s.id, academic_year_id: ayId, class_code:s.classCode,
+    student_type:s.studentType||'New', status:s.status||'Active',
+    s1_paid:Number(s.s1Paid)||0, s1_date:s.s1Date||null, s1_receipt:s.s1Receipt||null,
+    s2_paid:Number(s.s2Paid)||0, s2_date:s.s2Date||null, s2_receipt:s.s2Receipt||null,
+    carried_forward_original:Number(s.carriedForwardOriginal)||0, carried_forward_balance:Number(s.carriedForwardBalance)||0,
+    school_id: STATE.currentUser.schoolId};
+}
 function studentFromRow(r){
   return {id:r.id, name:r.name, classCode:r.class_code, gender:r.gender, age:r.age, parent:r.parent, contact:r.contact,
     enrollDate:r.enroll_date, status:r.status, studentType:r.student_type||'New',
@@ -477,9 +492,14 @@ async function loadProfileAndData(user){
 }
 async function loadAllData(){
   const schoolId = STATE.currentUser.schoolId;
-  const [cfgRes, studentsRes, logRes, profilesRes] = await Promise.all([
+  const {data:curYear} = await sb.from('academic_years').select('*').eq('is_current',true).limit(1).maybeSingle();
+  const ayId = curYear ? curYear.id : 'ay_1';
+  STATE.currentAcademicYearId = ayId;
+  STATE.currentAcademicYearLabel = curYear ? curYear.label : (STATE.schoolInfo.year||'');
+  const [cfgRes, studentsRes, enrRes, logRes, profilesRes] = await Promise.all([
     sb.from('school_config').select('*').eq('school_id', schoolId).single(),
     sb.from('students').select('*').order('id'),
+    sb.from('enrollments').select('*').eq('academic_year_id', ayId),
     sb.from('payment_log').select('*').order('submitted_at'),
     sb.from('profiles').select('*').order('created_at'),
   ]);
@@ -492,6 +512,19 @@ async function loadAllData(){
     STATE.taxBrackets = (cfgRes.data.tax_brackets && cfgRes.data.tax_brackets.length) ? cfgRes.data.tax_brackets : JSON.parse(JSON.stringify(DEFAULT_TAX_BRACKETS));
   }
   STATE.students = (studentsRes.data||[]).map(studentFromRow);
+  const enrByStudent = {};
+  (enrRes.data||[]).forEach(r=>{ enrByStudent[r.student_id] = enrollmentFromRow(r); });
+  STATE.students.forEach(s=>{
+    const e = enrByStudent[s.id];
+    if(e){
+      s.enrollmentId = e.enrollmentId; s.classCode = e.classCode; s.studentType = e.studentType; s.status = e.status;
+      s.s1Paid = e.s1Paid; s.s1Date = e.s1Date; s.s1Receipt = e.s1Receipt;
+      s.s2Paid = e.s2Paid; s.s2Date = e.s2Date; s.s2Receipt = e.s2Receipt;
+      s.carriedForwardOriginal = e.carriedForwardOriginal; s.carriedForwardBalance = e.carriedForwardBalance;
+    } else {
+      s.enrollmentId = null; s.carriedForwardOriginal = 0; s.carriedForwardBalance = 0;
+    }
+  });
   STATE.log = (logRes.data||[]).map(logFromRow);
   STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, createdAt:r.created_at}));
   if(can('manageGrades')){
@@ -499,9 +532,6 @@ async function loadAllData(){
     STATE.grades = (gradesData||[]).map(gradeFromRow);
   }
   if(can('manageTeachers')){
-    const {data:curYear} = await sb.from('academic_years').select('id').eq('is_current',true).limit(1).maybeSingle();
-    const ayId = curYear ? curYear.id : 'ay_1';
-    STATE.currentAcademicYearId = ayId;
     const [teachersRes, payRes, ctRes] = await Promise.all([
       sb.from('teachers').select('*').order('name'),
       sb.from('teacher_payments').select('*').order('month', {ascending:false}),
@@ -558,11 +588,14 @@ function calcFinance(student){
   const overpay = Math.max(0, s1Paid - s1Base);
   const s2Due = Math.max(0, s2Base - overpay);
   const s2Bal = Math.max(0, s2Due - s2Paid);
+  const priorOriginal = Math.max(0, Number(student.carriedForwardOriginal)||0);
+  const priorBal = Math.max(0, Number(student.carriedForwardBalance)||0);
   let status;
-  if(s1Bal===0 && s2Bal===0) status='paid';
-  else if(s1Paid>0 || s2Paid>0) status='partial';
+  if(s1Bal===0 && s2Bal===0 && priorBal===0) status='paid';
+  else if(s1Paid>0 || s2Paid>0 || priorBal<priorOriginal) status='partial';
   else status='outstanding';
-  return {s1Due:s1Base, s1Paid, s1Bal, s2Due, s2Paid, s2Bal, status, totalDue:s1Base+s2Base, totalPaid:s1Paid+s2Paid, totalBal:s1Bal+s2Bal};
+  return {s1Due:s1Base, s1Paid, s1Bal, s2Due, s2Paid, s2Bal, priorOriginal, priorBal, status,
+    totalDue:s1Base+s2Base+priorOriginal, totalPaid:s1Paid+s2Paid+(priorOriginal-priorBal), totalBal:s1Bal+s2Bal+priorBal};
 }
 function fmt(n){ return 'L$' + (Math.round((n||0)*100)/100).toLocaleString('en-US', {minimumFractionDigits:0, maximumFractionDigits:2}); }
 function fmtDT(iso){
@@ -716,13 +749,14 @@ function render(){
       <div class="side-foot">
         <div class="who">${esc(STATE.currentUser.fullName)}</div>
         <div class="role">${esc(ROLES[STATE.currentUser.role].label)}</div>
-        <div class="yr">AY ${esc(STATE.schoolInfo.year)}</div>
+        <div class="yr">AY ${esc(STATE.currentAcademicYearLabel||STATE.schoolInfo.year)}</div>
         ${navigator.onLine
           ? (STATE.outboxCount>0
               ? `<div class="conn-status conn-warn">🟡 Online — ${STATE.outboxCount} payment${STATE.outboxCount>1?'s':''} syncing…</div>`
               : `<div class="conn-status conn-ok">🟢 Online${STATE.offlineBoot?' — synced':''}</div>`)
           : `<div class="conn-status conn-off">🔴 Offline${STATE.outboxCount>0? ` — ${STATE.outboxCount} payment${STATE.outboxCount>1?'s':''} queued`:''}</div>`}
         <button data-action="settings">School Info</button>
+        ${STATE.currentUser.role==='admin'? `<button data-action="academicyear">Academic Year</button>`:''}
         <button data-action="logout">Log Out</button>
       </div>
     </div>
@@ -730,6 +764,7 @@ function render(){
   `;
   app.querySelectorAll('[data-nav]').forEach(b=>{ b.onclick = ()=>{ STATE.view=b.dataset.nav; render(); }; });
   app.querySelector('[data-action="settings"]').onclick = openSchoolInfoModal;
+  const ayBtn = app.querySelector('[data-action="academicyear"]'); if(ayBtn) ayBtn.onclick = openAcademicYearModal;
   app.querySelector('[data-action="logout"]').onclick = logout;
 
   const main = document.getElementById('mainArea');
@@ -885,7 +920,7 @@ function renderStudents(main){
     </div>
     <div class="panel" style="padding:0; overflow-x:auto;">
       ${list.length===0? `<div class="empty"><div class="big">🎒</div><h4>No students match this view</h4><p style="font-size:13px;">Try clearing filters${can('manageStudents')?', or add a new student to get started.':'.'}</p></div>` : `
-      <table><thead><tr><th></th><th>ID</th><th>Name</th><th>Class</th><th>Type</th><th class="tright">S1 Due</th><th class="tright">S1 Paid</th><th class="tright">S1 Bal</th><th class="tright">S2 Due</th><th class="tright">S2 Paid</th><th class="tright">S2 Bal</th><th>Status</th><th></th></tr></thead>
+      <table><thead><tr><th></th><th>ID</th><th>Name</th><th>Class</th><th>Type</th><th class="tright">Prior Bal</th><th class="tright">S1 Due</th><th class="tright">S1 Paid</th><th class="tright">S1 Bal</th><th class="tright">S2 Due</th><th class="tright">S2 Paid</th><th class="tright">S2 Bal</th><th>Status</th><th></th></tr></thead>
         <tbody>${list.map(s=>{
           const fin = calcFinance(s); const pend = pendingAmountFor(s.id);
           return `<tr>
@@ -896,6 +931,7 @@ function renderStudents(main){
             </td>
             <td class="muted">${esc(CLASS_LABEL[s.classCode])}</td>
             <td><span class="badge role">${(s.studentType||'New')==='New'?'New':'Old'}</span></td>
+            <td class="tright mono" style="${fin.priorBal>0?'color:var(--red)':''}">${fin.priorOriginal>0?fmt(fin.priorBal):'—'}</td>
             <td class="tright mono">${fmt(fin.s1Due)}</td><td class="tright mono">${fmt(fin.s1Paid)}</td>
             <td class="tright mono" style="${fin.s1Bal>0?'color:var(--red)':''}">${fmt(fin.s1Bal)}</td>
             <td class="tright mono">${fmt(fin.s2Due)}</td><td class="tright mono">${fmt(fin.s2Paid)}</td>
@@ -946,12 +982,18 @@ async function approvePayment(logId){
   if(!l || l.status!=='pending') return;
   const student = STATE.students.find(s=>s.id===l.studentId);
   if(!student){ toast('Student record not found'); return; }
-  student['s'+l.semester+'Paid'] = (Number(student['s'+l.semester+'Paid'])||0) + l.amount;
-  student['s'+l.semester+'Date'] = l.date;
-  student['s'+l.semester+'Receipt'] = l.receipt;
+  if(l.semester==='prior'){
+    student.carriedForwardBalance = Math.max(0, (Number(student.carriedForwardBalance)||0) - l.amount);
+  } else {
+    student['s'+l.semester+'Paid'] = (Number(student['s'+l.semester+'Paid'])||0) + l.amount;
+    student['s'+l.semester+'Date'] = l.date;
+    student['s'+l.semester+'Receipt'] = l.receipt;
+  }
   l.status='approved'; l.reviewedBy=STATE.currentUser.id; l.reviewedByName=STATE.currentUser.fullName; l.reviewedAt=new Date().toISOString();
 
-  const {error:e1} = await sb.from('students').update(studentToRow(student)).eq('id', student.id);
+  const {error:e1} = student.enrollmentId
+    ? await sb.from('enrollments').update(enrollmentToRow(student, STATE.currentAcademicYearId)).eq('id', student.enrollmentId)
+    : await sb.from('students').update(studentToRow(student)).eq('id', student.id);
   const {error:e2} = await sb.from('payment_log').update(logToRow(l)).eq('log_id', logId);
   if(e1||e2){ toast('Error approving payment: '+((e1||e2).message)); await refreshStudentsAndLog(); render(); return; }
   render();
@@ -1009,12 +1051,20 @@ function exportLogCSV(){
 function deletePostedPayment(logId){
   const l = STATE.log.find(x=>x.logId===logId);
   if(!l || l.status!=='approved') return;
-  openReasonModal('Delete Posted Payment', `${l.name||l.studentId} · ${fmt(l.amount)} · S${l.semester}, posted ${fmtDT(l.reviewedAt)}. This reduces the student's paid amount and moves the entry to the Audit Trail with your note attached — it is never fully erased.`, 'Delete Payment', async (reason)=>{
+  openReasonModal('Delete Posted Payment', `${l.name||l.studentId} · ${fmt(l.amount)} · ${l.semester==='prior'?'Prior Balance':'S'+l.semester}, posted ${fmtDT(l.reviewedAt)}. This reduces the student's paid amount and moves the entry to the Audit Trail with your note attached — it is never fully erased.`, 'Delete Payment', async (reason)=>{
     const student = STATE.students.find(s=>s.id===l.studentId);
-    if(student){ const key='s'+l.semester+'Paid'; student[key] = Math.max(0, (Number(student[key])||0) - l.amount); }
+    if(student){
+      if(l.semester==='prior'){
+        student.carriedForwardBalance = Math.min(student.carriedForwardOriginal||0, (Number(student.carriedForwardBalance)||0) + l.amount);
+      } else {
+        const key='s'+l.semester+'Paid'; student[key] = Math.max(0, (Number(student[key])||0) - l.amount);
+      }
+    }
     l.status='deleted'; l.deletedBy=STATE.currentUser.id; l.deletedByName=STATE.currentUser.fullName; l.deletedAt=new Date().toISOString(); l.deleteNote=reason;
     const ops = [ sb.from('payment_log').update(logToRow(l)).eq('log_id', logId) ];
-    if(student) ops.push(sb.from('students').update(studentToRow(student)).eq('id', student.id));
+    if(student) ops.push(student.enrollmentId
+      ? sb.from('enrollments').update(enrollmentToRow(student, STATE.currentAcademicYearId)).eq('id', student.enrollmentId)
+      : sb.from('students').update(studentToRow(student)).eq('id', student.id));
     const results = await Promise.all(ops);
     if(results.some(r=>r.error)){ toast('Error deleting payment'); await refreshStudentsAndLog(); }
     closeModal(); render(); toast('Payment deleted — recorded in the audit trail');
@@ -1093,6 +1143,76 @@ function openSchoolInfoModal(){
   };
 }
 
+function openAcademicYearModal(){
+  if(STATE.currentUser.role!=='admin') return;
+  const activeCount = STATE.students.filter(s=>s.status==='Active').length;
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>Academic Year</h3>
+    <p class="mhint">Current year: <b>${esc(STATE.currentAcademicYearLabel||STATE.schoolInfo.year||'—')}</b></p>
+    <div class="note-box">
+      Starting a new year: keeps every existing student, payment, and receipt exactly as it is — nothing is deleted.
+      For each of your ${activeCount} active students, it opens a new S1/S2 ledger for the new year, and rolls
+      any amount still owed from ${esc(STATE.currentAcademicYearLabel||'this year')} into a "Prior Balance" on top of the new year's fees.
+      Classes carry over unchanged — you'll still need to move each student up a class yourself from the Students page.
+      Inactive students are left out of the new year (reactivate and re-add them if one returns).
+    </div>
+    <div class="field" style="margin-top:12px;"><label>New Academic Year Label</label><input type="text" id="ayLabel" placeholder="e.g. 2026/2027"></div>
+    <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="aySave">Start New Year</button></div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#aySave').onclick = async ()=>{
+    const label = modalRoot.querySelector('#ayLabel').value.trim();
+    if(!label){ toast('Enter a label for the new academic year'); return; }
+    if(!confirm(`Start "${label}" as the new academic year for all ${activeCount} active students? This can't be undone from within the app.`)) return;
+    const btn = modalRoot.querySelector('#aySave'); btn.disabled=true; btn.textContent='Starting…';
+    try{ await startNewAcademicYear(label); closeModal(); render(); toast(`New academic year "${label}" started`); }
+    catch(err){ toast('Error: '+(err.message||err)); btn.disabled=false; btn.textContent='Start New Year'; }
+  };
+}
+
+async function startNewAcademicYear(label){
+  const schoolId = STATE.currentUser.schoolId;
+  const oldAyId = STATE.currentAcademicYearId;
+  const newAyId = 'ay_' + Date.now();
+
+  // Freeze the outgoing year's fee structure/tax brackets for the historical record, then flip the flag.
+  await sb.from('academic_years').update({fee_structure: STATE.fees, tax_brackets: STATE.taxBrackets, is_current:false}).eq('id', oldAyId);
+  const {error: createErr} = await sb.from('academic_years').insert({id:newAyId, school_id:schoolId, label, is_current:true, receipt_counter: STATE.receiptCounter||1});
+  if(createErr) throw createErr;
+
+  const activeStudents = STATE.students.filter(s=>s.status==='Active');
+  const rows = activeStudents.map(s=>{
+    const fin = calcFinance(s);
+    return {
+      id: `en_${s.id}_${newAyId}`, student_id: s.id, academic_year_id: newAyId, class_code: s.classCode,
+      student_type: 'Old', status: 'Active',
+      s1_paid: 0, s1_date: null, s1_receipt: null, s2_paid: 0, s2_date: null, s2_receipt: null,
+      carried_forward_original: fin.totalBal, carried_forward_balance: fin.totalBal,
+      school_id: schoolId,
+    };
+  });
+  if(rows.length){
+    const {error: rowErr} = await sb.from('enrollments').insert(rows);
+    if(rowErr) throw rowErr;
+  }
+
+  STATE.schoolInfo.year = label;
+  await sb.from('school_config').update({school_info:STATE.schoolInfo}).eq('school_id', schoolId);
+
+  STATE.currentAcademicYearId = newAyId;
+  STATE.currentAcademicYearLabel = label;
+  const rowById = {}; rows.forEach(r=> rowById[r.student_id]=r);
+  STATE.students.forEach(s=>{
+    const r = rowById[s.id];
+    if(r){
+      s.enrollmentId = r.id; s.s1Paid=0; s.s1Date=''; s.s1Receipt=''; s.s2Paid=0; s.s2Date=''; s.s2Receipt='';
+      s.carriedForwardOriginal = r.carried_forward_original; s.carriedForwardBalance = r.carried_forward_balance;
+    }
+  });
+  await cacheSnapshot();
+}
+
 function openStudentModal(studentId){
   if(!can('manageStudents')) return;
   const editing = !!studentId;
@@ -1112,7 +1232,7 @@ function openStudentModal(studentId){
     </div>
     <div class="field"><label>Full Name</label><input type="text" id="stName" value="${editing? esc(s.name):''}" placeholder="e.g. Comfort D. Toe"></div>
     <div class="field2">
-      <div class="field"><label>Class</label><select id="stClass" ${editing? 'disabled':''}>${CLASS_DEFS.map(c=>`<option value="${c.code}" ${defaultClass===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div>
+      <div class="field"><label>Class${editing?' (this year)':''}</label><select id="stClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${defaultClass===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div>
       <div class="field"><label>Gender</label><select id="stGender">
         <option value="" ${!editing || !s.gender?'selected':''}>—</option>
         <option value="Male" ${editing&&s.gender==='Male'?'selected':''}>Male</option>
@@ -1194,10 +1314,14 @@ function openStudentModal(studentId){
         const url = await uploadFile('documents', path, f);
         pendingDocs.push({name:f.name, url, uploaded_at:new Date().toISOString()});
       }
+      const classCode = modalRoot.querySelector('#stClass').value;
+      const yearFields = {
+        classCode, status: modalRoot.querySelector('#stStatus').value,
+        studentType: modalRoot.querySelector('#stType').value,
+      };
       const common = {
         name, gender: modalRoot.querySelector('#stGender').value, age: modalRoot.querySelector('#stAge').value,
-        dob: modalRoot.querySelector('#stDob').value, status: modalRoot.querySelector('#stStatus').value,
-        studentType: modalRoot.querySelector('#stType').value,
+        dob: modalRoot.querySelector('#stDob').value,
         previousSchool: modalRoot.querySelector('#stPrevSchool')?.value.trim()||'',
         previousSchoolNotes: modalRoot.querySelector('#stPrevNotes')?.value.trim()||'',
         parent: modalRoot.querySelector('#stParent').value.trim(), contact: modalRoot.querySelector('#stContact').value.trim(),
@@ -1205,14 +1329,20 @@ function openStudentModal(studentId){
         enrollDate: modalRoot.querySelector('#stEnroll').value, photoUrl, documents: pendingDocs,
       };
       if(editing){
-        Object.assign(s, common);
-        const {error} = await sb.from('students').update(studentToRow(s)).eq('id', s.id);
-        if(error){ toast('Error: '+error.message); return; }
+        Object.assign(s, common, yearFields);
+        if(!s.enrollmentId) s.enrollmentId = `en_${s.id}_${STATE.currentAcademicYearId}`;
+        const {error:e1} = await sb.from('students').update(studentToRow(s)).eq('id', s.id);
+        const {error:e2} = await sb.from('enrollments').upsert(enrollmentToRow(s, STATE.currentAcademicYearId), {onConflict:'id'});
+        if(e1||e2){ toast('Error: '+((e1||e2).message)); return; }
       } else {
-        const classCode = modalRoot.querySelector('#stClass').value;
-        const newStudent = {id: studentId2, classCode, s1Paid:0, s1Date:'', s1Receipt:'', s2Paid:0, s2Date:'', s2Receipt:'', ...common};
-        const {error} = await sb.from('students').insert(studentToRow(newStudent));
-        if(error){ toast('Error: '+error.message); return; }
+        const newStudent = {id: studentId2, s1Paid:0, s1Date:'', s1Receipt:'', s2Paid:0, s2Date:'', s2Receipt:'',
+          carriedForwardOriginal:0, carriedForwardBalance:0, ...common, ...yearFields};
+        const {error:e1} = await sb.from('students').insert(studentToRow(newStudent));
+        if(e1){ toast('Error: '+e1.message); return; }
+        const enrollmentId = `en_${studentId2}_${STATE.currentAcademicYearId}`;
+        newStudent.enrollmentId = enrollmentId;
+        const {error:e2} = await sb.from('enrollments').insert(enrollmentToRow(newStudent, STATE.currentAcademicYearId));
+        if(e2){ toast('Error: '+e2.message); return; }
         STATE.students.push(newStudent);
       }
       closeModal(); render(); toast(editing? 'Student updated' : 'Student added');
@@ -1257,6 +1387,7 @@ function openStudentProfileModal(studentId){
     </div>`:''}
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
       <div class="mhint" style="margin-bottom:6px;">Balances</div>
+      ${fin.priorOriginal>0? `<div style="margin-bottom:4px;">Prior Balance (carried forward): ${fmt(fin.priorOriginal-fin.priorBal)} paid of ${fmt(fin.priorOriginal)} <span style="${fin.priorBal>0?'color:var(--red)':''}">(${fmt(fin.priorBal)} due)</span></div>`:''}
       <div class="field2">
         <div>S1: ${fmt(fin.s1Paid)} paid of ${fmt(fin.s1Due)} <span style="${fin.s1Bal>0?'color:var(--red)':''}">(${fmt(fin.s1Bal)} due)</span></div>
         <div>S2: ${fmt(fin.s2Paid)} paid of ${fmt(fin.s2Due)} <span style="${fin.s2Bal>0?'color:var(--red)':''}">(${fmt(fin.s2Bal)} due)</span></div>
@@ -1293,9 +1424,9 @@ function openPaymentModal(studentId){
   openModal(`
     <button class="close-x" data-close>×</button>
     <h3>Record Payment</h3>
-    <p class="mhint">${esc(s.name)||esc(s.id)} · ${esc(CLASS_LABEL[s.classCode])} · S1 balance ${fmt(fin.s1Bal)} · S2 balance ${fmt(fin.s2Bal)}</p>
+    <p class="mhint">${esc(s.name)||esc(s.id)} · ${esc(CLASS_LABEL[s.classCode])} · S1 balance ${fmt(fin.s1Bal)} · S2 balance ${fmt(fin.s2Bal)}${fin.priorOriginal>0?` · Prior balance ${fmt(fin.priorBal)}`:''}</p>
     <div class="note-box">This payment will be sent for review and won't affect the student's balance until an Admin approves it.</div>
-    <div class="field" style="margin-top:12px;"><label>Semester</label><select id="pSem"><option value="1">Semester 1 (balance ${fmt(fin.s1Bal)})</option><option value="2">Semester 2 (balance ${fmt(fin.s2Bal)})</option></select></div>
+    <div class="field" style="margin-top:12px;"><label>Semester</label><select id="pSem">${fin.priorOriginal>0?`<option value="prior">Prior Balance — carried forward (${fmt(fin.priorBal)} due)</option>`:''}<option value="1">Semester 1 (balance ${fmt(fin.s1Bal)})</option><option value="2">Semester 2 (balance ${fmt(fin.s2Bal)})</option></select></div>
     <div class="field2">
       <div class="field"><label>Amount (LRD)</label><input type="number" id="pAmount" min="0" step="0.01" placeholder="0.00"></div>
       <div class="field"><label>Date</label><input type="date" id="pDate" value="${new Date().toISOString().slice(0,10)}"></div>
@@ -1491,7 +1622,7 @@ function openPaymentReceipt(logId){
   const s = STATE.students.find(x=>x.id===l.studentId);
   const si = STATE.schoolInfo;
   const fin = s ? calcFinance(s) : null;
-  const bal = fin ? (l.semester==='1'||l.semester===1 ? fin.s1Bal : fin.s2Bal) : null;
+  const bal = fin ? (l.semester==='prior' ? fin.priorBal : (l.semester==='1'||l.semester===1 ? fin.s1Bal : fin.s2Bal)) : null;
   const isOffline = String(l.receipt||'').startsWith('OFF-');
   printSheet(`
     <div class="ps-page ps-receipt">
@@ -1512,7 +1643,7 @@ function openPaymentReceipt(logId){
         <div><b>Received From:</b> ${esc(l.name)||esc(l.studentId)}</div>
         <div><b>Student ID:</b> ${esc(l.studentId)}</div>
         <div><b>Class:</b> ${esc(CLASS_LABEL[l.classCode]||l.classCode)}</div>
-        <div><b>Semester:</b> Semester ${esc(l.semester)}</div>
+        <div><b>Semester:</b> ${l.semester==='prior'?'Prior Balance (carried forward)':'Semester '+esc(l.semester)}</div>
         <div><b>Date:</b> ${esc(l.date)}</div>
         <div><b>Payment Method:</b> ${esc(l.method)||'—'}</div>
       </div>
@@ -1521,7 +1652,7 @@ function openPaymentReceipt(logId){
         <div class="amt">${fmt(l.amount)}</div>
         <div class="ps-words">${amountInWords(l.amount)} Liberian Dollars only</div>
       </div>
-      ${bal!==null ? `<div style="font-size:12px;margin-bottom:10px;"><b>Remaining Balance (S${l.semester}):</b> ${fmt(bal)}</div>` : ''}
+      ${bal!==null ? `<div style="font-size:12px;margin-bottom:10px;"><b>Remaining Balance (${l.semester==='prior'?'Prior Balance':'S'+l.semester}):</b> ${fmt(bal)}</div>` : ''}
       <div class="ps-foot" style="margin-top:22px;">
         <div class="ps-sig">${esc(l.reviewedByName)||esc(l.submittedByName)||''}<br>Received By</div>
         <div class="ps-sig">${esc(si.bursar)||''}<br>Bursar</div>
