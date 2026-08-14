@@ -179,6 +179,16 @@
   .ps-table th{background:#eee;}
   .ps-foot{margin-top:26px;display:flex;justify-content:space-between;font-size:12px;}
   .ps-sig{border-top:1px solid #333;padding-top:4px;width:180px;text-align:center;}
+  .ps-receipt{max-width:520px;border:1.5px solid #132340;padding:20px 24px;}
+  .ps-receipt-top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px dashed #999;padding-bottom:10px;margin-bottom:14px;}
+  .ps-receipt-no{text-align:right;font-size:12px;}
+  .ps-receipt-no b{display:block;font-size:15px;color:#132340;letter-spacing:.03em;}
+  .ps-receipt-status{display:inline-block;margin-top:4px;font-size:10px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:#1a7a3c;border:1px solid #1a7a3c;border-radius:3px;padding:1px 6px;}
+  .ps-receipt-status.off{color:#a15c00;border-color:#a15c00;}
+  .ps-amount-box{margin:16px 0;padding:12px 14px;background:#f4f6f9;border:1px solid #ccc;border-radius:6px;}
+  .ps-amount-box .amt{font-size:24px;font-weight:700;color:#132340;}
+  .ps-words{font-size:11.5px;color:#555;font-style:italic;margin-top:4px;}
+  .ps-receipt .ps-meta{grid-template-columns:1fr;gap:5px;}
   @media print{
     body > *:not(#printSheet){display:none!important;}
     #printSheet{display:block!important;}
@@ -302,7 +312,7 @@ function studentToRow(s){
     s2_paid:Number(s.s2Paid)||0, s2_date:s.s2Date||null, s2_receipt:s.s2Receipt||null,
     dob:s.dob||null, photo_url:s.photoUrl||null, previous_school:s.previousSchool||null,
     previous_school_notes:s.previousSchoolNotes||null, guardian_address:s.guardianAddress||null,
-    documents:s.documents||[]};
+    documents:s.documents||[], school_id: STATE.currentUser.schoolId};
 }
 function logFromRow(r){
   return {logId:r.log_id, date:r.date, studentId:r.student_id, name:r.name, classCode:r.class_code, semester:r.semester,
@@ -316,7 +326,8 @@ function logToRow(l){
     amount:l.amount, method:l.method||null, receipt:l.receipt||null, status:l.status,
     submitted_by:l.submittedBy||null, submitted_by_name:l.submittedByName||null, submitted_at:l.submittedAt||null,
     reviewed_by:l.reviewedBy||null, reviewed_by_name:l.reviewedByName||null, reviewed_at:l.reviewedAt||null, review_note:l.reviewNote||null,
-    deleted_by:l.deletedBy||null, deleted_by_name:l.deletedByName||null, deleted_at:l.deletedAt||null, delete_note:l.deleteNote||null};
+    deleted_by:l.deletedBy||null, deleted_by_name:l.deletedByName||null, deleted_at:l.deletedAt||null, delete_note:l.deleteNote||null,
+    school_id: STATE.currentUser.schoolId};
 }
 function gradeFromRow(r){
   return {id:r.id, studentId:r.student_id, subject:r.subject,
@@ -328,7 +339,8 @@ function gradeToRow(g){
   return {id:g.id, student_id:g.studentId, subject:g.subject,
     p1:numOrNull(g.p1), p2:numOrNull(g.p2), p3:numOrNull(g.p3), exam_s1:numOrNull(g.examS1),
     p4:numOrNull(g.p4), p5:numOrNull(g.p5), p6:numOrNull(g.p6), exam_s2:numOrNull(g.examS2),
-    remarks:g.remarks||null, updated_by:g.updatedBy||null, updated_by_name:g.updatedByName||null, updated_at:g.updatedAt||new Date().toISOString()};
+    remarks:g.remarks||null, updated_by:g.updatedBy||null, updated_by_name:g.updatedByName||null, updated_at:g.updatedAt||new Date().toISOString(),
+    school_id: STATE.currentUser.schoolId};
 }
 function numOrNull(v){ return (v===''||v===null||v===undefined) ? null : Number(v); }
 function gradeAvg(g, part){
@@ -344,7 +356,7 @@ function teacherFromRow(r){
 function teacherToRow(t){
   return {id:t.id, name:t.name, contact:t.contact||null, email:t.email||null, subjects:t.subjects||'', classes:t.classes||'',
     hire_date:t.hireDate||null, status:t.status||'Active', base_salary:Number(t.baseSalary)||0,
-    photo_url:t.photoUrl||null, resume_url:t.resumeUrl||null, documents:t.documents||[]};
+    photo_url:t.photoUrl||null, resume_url:t.resumeUrl||null, documents:t.documents||[], school_id: STATE.currentUser.schoolId};
 }
 function paymentFromRow(r){
   return {id:r.id, teacherId:r.teacher_id, teacherName:r.teacher_name, month:r.month, gross:Number(r.gross)||0,
@@ -354,7 +366,7 @@ function paymentFromRow(r){
 function paymentToRow(p){
   return {id:p.id, teacher_id:p.teacherId, teacher_name:p.teacherName, month:p.month, gross:p.gross,
     tax:p.tax, deductions:p.deductions||[], net:p.net, paid_date:p.paidDate||null,
-    paid_by:p.paidBy||null, paid_by_name:p.paidByName||null};
+    paid_by:p.paidBy||null, paid_by_name:p.paidByName||null, school_id: STATE.currentUser.schoolId};
 }
 function computeTax(gross){
   const g = Number(gross)||0;
@@ -458,14 +470,15 @@ async function initAuth(){
 async function loadProfileAndData(user){
   const {data:profile, error} = await sb.from('profiles').select('*').eq('id',user.id).single();
   if(error || !profile){ STATE.authError='Could not load your profile. Please try signing in again.'; await sb.auth.signOut(); STATE.loaded=true; render(); return; }
-  STATE.currentUser = {id:user.id, email:user.email, fullName:profile.full_name||user.email, role:profile.role};
+  STATE.currentUser = {id:user.id, email:user.email, fullName:profile.full_name||user.email, role:profile.role, schoolId:profile.school_id||'school_1'};
   await loadAllData();
   STATE.loaded = true;
   render();
 }
 async function loadAllData(){
+  const schoolId = STATE.currentUser.schoolId;
   const [cfgRes, studentsRes, logRes, profilesRes] = await Promise.all([
-    sb.from('school_config').select('*').eq('id',1).single(),
+    sb.from('school_config').select('*').eq('school_id', schoolId).single(),
     sb.from('students').select('*').order('id'),
     sb.from('payment_log').select('*').order('submitted_at'),
     sb.from('profiles').select('*').order('created_at'),
@@ -486,10 +499,13 @@ async function loadAllData(){
     STATE.grades = (gradesData||[]).map(gradeFromRow);
   }
   if(can('manageTeachers')){
+    const {data:curYear} = await sb.from('academic_years').select('id').eq('is_current',true).limit(1).maybeSingle();
+    const ayId = curYear ? curYear.id : 'ay_1';
+    STATE.currentAcademicYearId = ayId;
     const [teachersRes, payRes, ctRes] = await Promise.all([
       sb.from('teachers').select('*').order('name'),
       sb.from('teacher_payments').select('*').order('month', {ascending:false}),
-      sb.from('class_teachers').select('*').eq('academic_year_id','ay_1'),
+      sb.from('class_teachers').select('*').eq('academic_year_id', ayId),
     ]);
     STATE.teachers = (teachersRes.data||[]).map(teacherFromRow);
     STATE.teacherPayments = (payRes.data||[]).map(paymentFromRow);
@@ -827,7 +843,7 @@ function renderFees(main){
     inp.onchange = async ()=>{
       const code = inp.dataset.fee, field = inp.dataset.field;
       STATE.fees[code][field] = Number(inp.value)||0;
-      const {error} = await sb.from('school_config').update({fees:STATE.fees}).eq('id',1);
+      const {error} = await sb.from('school_config').update({fees:STATE.fees}).eq('school_id', STATE.currentUser.schoolId);
       if(error){ toast('Error saving: '+error.message); return; }
       render(); toast('Fee structure updated');
     };
@@ -966,7 +982,7 @@ function renderLog(main){
         <tbody>${posted.map(l=>`
           <tr><td class="mono">${esc(l.date)}</td><td class="mono">${esc(l.studentId)}</td><td>${esc(l.name)}</td><td class="muted">${esc(CLASS_LABEL[l.classCode]||l.classCode)}</td><td>S${l.semester}</td>
           <td class="tright mono" style="font-weight:600;">${fmt(l.amount)}</td><td class="muted">${esc(l.method)||'—'}</td><td class="mono muted">${esc(l.receipt)||'—'}</td>
-          <td class="muted">${esc(l.reviewedByName)||'—'}</td><td>${can('deletePayments')? `<button class="btn small ghost danger" data-del="${l.logId}">Delete</button>`:''}</td></tr>`).join('')}
+          <td class="muted">${esc(l.reviewedByName)||'—'}</td><td style="white-space:nowrap;"><button class="btn small ghost" data-receipt="${l.logId}">Receipt</button>${can('deletePayments')? ` <button class="btn small ghost danger" data-del="${l.logId}">Delete</button>`:''}</td></tr>`).join('')}
         </tbody></table>`) : (audit.length===0? `<div class="empty"><div class="big">🗂️</div><h4>No rejected or deleted entries</h4><p style="font-size:13px;">Nothing removed from the ledger yet.</p></div>` : `
       <table><thead><tr><th>Status</th><th>Student</th><th>Class</th><th>Sem.</th><th class="tright">Amount</th><th>By</th><th>When</th><th>Note</th></tr></thead>
         <tbody>${audit.map(l=>`
@@ -981,6 +997,7 @@ function renderLog(main){
   main.querySelectorAll('[data-tab]').forEach(b=> b.onclick = ()=>{ STATE.logTab = b.dataset.tab; render(); });
   main.querySelector('#exportBtn').onclick = exportLogCSV;
   main.querySelectorAll('[data-del]').forEach(b=> b.onclick=()=>deletePostedPayment(b.dataset.del));
+  main.querySelectorAll('[data-receipt]').forEach(b=> b.onclick=()=>openPaymentReceipt(b.dataset.receipt));
 }
 function exportLogCSV(){
   const rows = [['Status','Date','Student ID','Name','Class','Semester','Amount (LRD)','Method','Receipt','Submitted By','Reviewed/Deleted By','Note']];
@@ -1070,7 +1087,7 @@ function openSchoolInfoModal(){
       year: modalRoot.querySelector('#siYear').value.trim(), principal: modalRoot.querySelector('#siPrincipal').value.trim(),
       bursar: modalRoot.querySelector('#siBursar').value.trim(), activated: modalRoot.querySelector('#siActivated').value,
     };
-    const {error} = await sb.from('school_config').update({school_info:STATE.schoolInfo}).eq('id',1);
+    const {error} = await sb.from('school_config').update({school_info:STATE.schoolInfo}).eq('school_id', STATE.currentUser.schoolId);
     if(error){ toast('Error: '+error.message); return; }
     closeModal(); render(); toast('School information saved');
   };
@@ -1247,8 +1264,9 @@ function openStudentProfileModal(studentId){
     </div>
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
       <div class="mhint" style="margin-bottom:6px;">Payment History</div>
-      ${hist.length? hist.map(l=>`<div style="font-size:12.5px;display:flex;justify-content:space-between;padding:3px 0;">
-          <span>${esc(l.date)} · S${l.semester} · ${esc(l.method)||'—'} · ${esc(l.receipt)}</span><span class="mono">${fmt(l.amount)}</span>
+      ${hist.length? hist.map(l=>`<div style="font-size:12.5px;display:flex;justify-content:space-between;align-items:center;padding:3px 0;">
+          <span>${esc(l.date)} · S${l.semester} · ${esc(l.method)||'—'} · ${esc(l.receipt)}</span>
+          <span style="display:flex;align-items:center;gap:8px;"><span class="mono">${fmt(l.amount)}</span><a href="#" data-receipt="${l.logId}" style="color:var(--blue);text-decoration:underline;font-size:11.5px;">Receipt</a></span>
         </div>`).join('') : `<div class="muted" style="font-size:12px;">No approved payments yet.</div>`}
     </div>
     <div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--line);">
@@ -1264,6 +1282,7 @@ function openStudentProfileModal(studentId){
   modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
   const editBtn = modalRoot.querySelector('#stpEdit'); if(editBtn) editBtn.onclick = ()=>openStudentModal(s.id);
   modalRoot.querySelector('#stpGrade').onclick = ()=>{ closeModal(); openGradeSheet(s.id); };
+  modalRoot.querySelectorAll('[data-receipt]').forEach(a=> a.onclick=(e)=>{ e.preventDefault(); openPaymentReceipt(a.dataset.receipt); });
 }
 
 function openPaymentModal(studentId){
@@ -1442,6 +1461,72 @@ function openGradeSheet(studentId){
         <div class="ps-sig">${esc(si.principal)||''}<br>Principal</div>
         <div class="ps-sig">${esc(si.bursar)||''}<br>Registrar / Bursar</div>
       </div>
+    </div>
+  `);
+}
+
+function amountInWords(n){
+  n = Math.round(Number(n)||0);
+  if(n===0) return 'Zero';
+  const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten','Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  function threeDigits(num){
+    let s='';
+    if(num>=100){ s += ones[Math.floor(num/100)] + ' Hundred'; num%=100; if(num) s+=' '; }
+    if(num>=20){ s += tens[Math.floor(num/10)]; if(num%10) s+='-'+ones[num%10]; }
+    else if(num>0){ s += ones[num]; }
+    return s;
+  }
+  const groups = [['Billion',1e9],['Million',1e6],['Thousand',1e3]];
+  let remain = n, parts=[];
+  for(const [label,val] of groups){
+    if(remain>=val){ const g=Math.floor(remain/val); parts.push(threeDigits(g)+' '+label); remain%=val; }
+  }
+  if(remain>0) parts.push(threeDigits(remain));
+  return parts.join(' ');
+}
+function openPaymentReceipt(logId){
+  const l = STATE.log.find(x=>x.logId===logId);
+  if(!l) return;
+  const s = STATE.students.find(x=>x.id===l.studentId);
+  const si = STATE.schoolInfo;
+  const fin = s ? calcFinance(s) : null;
+  const bal = fin ? (l.semester==='1'||l.semester===1 ? fin.s1Bal : fin.s2Bal) : null;
+  const isOffline = String(l.receipt||'').startsWith('OFF-');
+  printSheet(`
+    <div class="ps-page ps-receipt">
+      <div class="ps-receipt-top">
+        <div>
+          <h1 style="font-size:17px;margin:0 0 2px;">${esc(si.name)||'School Name'}</h1>
+          <div style="font-size:11.5px;color:#444;">${esc(si.address)||''}${si.address&&si.county?' · ':''}${esc(si.county)||''}</div>
+          <div style="font-size:11.5px;color:#444;">Academic Year ${esc(si.year)}</div>
+        </div>
+        <div class="ps-receipt-no">
+          Receipt No.
+          <b>${esc(l.receipt)||'—'}</b>
+          <span class="ps-receipt-status ${isOffline?'off':''}">${l.status==='approved' ? (isOffline?'Recorded offline':'Official Receipt') : esc(l.status)}</span>
+        </div>
+      </div>
+      <div class="ps-title" style="margin-bottom:12px;">Official Payment Receipt</div>
+      <div class="ps-meta">
+        <div><b>Received From:</b> ${esc(l.name)||esc(l.studentId)}</div>
+        <div><b>Student ID:</b> ${esc(l.studentId)}</div>
+        <div><b>Class:</b> ${esc(CLASS_LABEL[l.classCode]||l.classCode)}</div>
+        <div><b>Semester:</b> Semester ${esc(l.semester)}</div>
+        <div><b>Date:</b> ${esc(l.date)}</div>
+        <div><b>Payment Method:</b> ${esc(l.method)||'—'}</div>
+      </div>
+      <div class="ps-amount-box">
+        <div style="font-size:11px;color:#555;">Amount Paid</div>
+        <div class="amt">${fmt(l.amount)}</div>
+        <div class="ps-words">${amountInWords(l.amount)} Liberian Dollars only</div>
+      </div>
+      ${bal!==null ? `<div style="font-size:12px;margin-bottom:10px;"><b>Remaining Balance (S${l.semester}):</b> ${fmt(bal)}</div>` : ''}
+      <div class="ps-foot" style="margin-top:22px;">
+        <div class="ps-sig">${esc(l.reviewedByName)||esc(l.submittedByName)||''}<br>Received By</div>
+        <div class="ps-sig">${esc(si.bursar)||''}<br>Bursar</div>
+      </div>
+      <div style="text-align:center;font-size:10.5px;color:#888;margin-top:16px;">This receipt is generated by the system and is proof of payment. Keep it for your records.</div>
     </div>
   `);
 }
@@ -1751,13 +1836,14 @@ function openTeacherModal(teacherId){
       };
       const {error} = editing ? await sb.from('teachers').update(teacherToRow(payload)).eq('id', payload.id) : await sb.from('teachers').insert(teacherToRow(payload));
       if(error){ toast('Error: '+error.message); return; }
-      await sb.from('class_teachers').delete().eq('teacher_id', teacherId2).eq('academic_year_id','ay_1');
+      const ayId = STATE.currentAcademicYearId || 'ay_1';
+      await sb.from('class_teachers').delete().eq('teacher_id', teacherId2).eq('academic_year_id', ayId);
       if(selectedClasses.length){
-        const rows = selectedClasses.map(cc=>({id:`ct_${teacherId2}_${cc}`, academic_year_id:'ay_1', class_code:cc, teacher_id:teacherId2}));
+        const rows = selectedClasses.map(cc=>({id:`ct_${teacherId2}_${cc}`, academic_year_id:ayId, class_code:cc, teacher_id:teacherId2}));
         await sb.from('class_teachers').insert(rows);
       }
       STATE.classTeachers = STATE.classTeachers.filter(ct=>ct.teacher_id!==teacherId2);
-      selectedClasses.forEach(cc=> STATE.classTeachers.push({id:`ct_${teacherId2}_${cc}`, academic_year_id:'ay_1', class_code:cc, teacher_id:teacherId2}));
+      selectedClasses.forEach(cc=> STATE.classTeachers.push({id:`ct_${teacherId2}_${cc}`, academic_year_id:ayId, class_code:cc, teacher_id:teacherId2}));
       if(editing){ Object.assign(t, payload); } else { STATE.teachers.push(payload); }
       closeModal(); render(); toast(editing? 'Teacher updated' : 'Teacher added');
     }catch(err){
@@ -1872,7 +1958,7 @@ function openTaxBracketsModal(){
     modalRoot.querySelectorAll('[data-brm]').forEach(b=> b.onclick = ()=>{ sync(); brackets.splice(Number(b.dataset.brm),1); draw(); });
     modalRoot.querySelector('#bSave').onclick = async ()=>{
       sync();
-      const {error} = await sb.from('school_config').update({tax_brackets: brackets}).eq('id',1);
+      const {error} = await sb.from('school_config').update({tax_brackets: brackets}).eq('school_id', STATE.currentUser.schoolId);
       if(error){ toast('Error saving: '+error.message); return; }
       STATE.taxBrackets = brackets;
       closeModal(); render(); toast('Tax brackets updated');
