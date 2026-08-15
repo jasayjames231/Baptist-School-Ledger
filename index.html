@@ -220,6 +220,8 @@ const CLASS_DEFS = [
   {code:'G10', label:'Grade 10'}, {code:'G11', label:'Grade 11'}, {code:'G12', label:'Grade 12'},
 ];
 const CLASS_LABEL = Object.fromEntries(CLASS_DEFS.map(c=>[c.code,c.label]));
+const SUBJECTS = ['English Grammar','Mathematics','General Science','Social Studies','Bible','Spelling','Reading','Writing','Civics','Computer',
+  'Physical Education','Vocabulary','History','Composition','Literature','Geography','RME','ROTC/PE','Chemistry','Biology','Physics','Economics','Drawing/Arts'];
 
 function mkFees(tS1,tS2,reg,exam,act,uni,lib){
   return {
@@ -2030,12 +2032,13 @@ function renderTeacherProfiles(main){
       ${list.length===0? `<p class="muted" style="font-size:13px;">No teachers added yet.</p>` : `
       <table><thead><tr><th></th><th>ID</th><th>Name</th><th>Subjects</th><th>Classes</th><th class="tright">Base Salary</th><th>Status</th><th></th></tr></thead>
         <tbody>${list.map(t=>{
-          const assigned = STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).map(ct=>ct.class_code);
+          const rows = STATE.classTeachers.filter(ct=>ct.teacher_id===t.id);
+          const assignedDisplay = rows.map(ct=> (ct.subjects&&ct.subjects.length) ? `${ct.class_code} (${ct.subjects.join(', ')})` : ct.class_code);
           return `<tr>
             <td><div style="width:30px;height:30px;border-radius:7px;overflow:hidden;background:var(--paper-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:13px;color:var(--ink-soft);">${t.photoUrl?`<img src="${esc(t.photoUrl)}" style="width:100%;height:100%;object-fit:cover;">`:'👤'}</div></td>
             <td class="mono">${esc(t.id)}</td>
             <td><a href="#" data-tprofile="${t.id}" style="color:inherit;text-decoration:none;border-bottom:1px dotted var(--ink-soft);">${esc(t.name)}</a></td>
-            <td class="muted">${esc(t.subjects)||'—'}</td><td class="muted">${assigned.length? esc(assigned.join(', ')) : (esc(t.classes)||'—')}</td>
+            <td class="muted">${esc(t.subjects)||'—'}</td><td class="muted" style="max-width:220px;">${assignedDisplay.length? esc(assignedDisplay.join('; ')) : (esc(t.classes)||'—')}</td>
             <td class="tright mono">${fmt(t.baseSalary)}</td><td><span class="badge ${t.status==='Active'?'role':'inactive'}">${esc(t.status)}</span></td>
             <td style="white-space:nowrap;"><button class="btn ghost" data-pay="${t.id}">Pay Salary</button> <button class="btn ghost" data-edit-t="${t.id}">Edit</button></td></tr>`;
         }).join('')}</tbody></table>`}
@@ -2050,7 +2053,7 @@ function renderTeacherProfiles(main){
 function openTeacherProfileModal(teacherId){
   const t = STATE.teachers.find(x=>x.id===teacherId);
   if(!t) return;
-  const assigned = STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).map(ct=>CLASS_LABEL[ct.class_code]||ct.class_code);
+  const assigned = STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).map(ct=> (ct.subjects&&ct.subjects.length) ? `${CLASS_LABEL[ct.class_code]||ct.class_code} (${ct.subjects.join(', ')})` : (CLASS_LABEL[ct.class_code]||ct.class_code));
   const pays = STATE.teacherPayments.filter(p=>p.teacherId===t.id).sort((a,b)=> new Date(b.month)-new Date(a.month));
   openModal(`
     <button class="close-x" data-close>×</button>
@@ -2095,6 +2098,8 @@ function openTeacherModal(teacherId){
   const editing = !!teacherId;
   const t = editing ? STATE.teachers.find(x=>x.id===teacherId) : null;
   const assignedNow = editing ? new Set(STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).map(ct=>ct.class_code)) : new Set();
+  const subjectsNow = {};
+  if(editing) STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).forEach(ct=>{ subjectsNow[ct.class_code] = ct.subjects||[]; });
   openModal(`
     <button class="close-x" data-close>×</button>
     <h3>${editing? 'Edit Teacher':'Add Teacher'}</h3>
@@ -2111,10 +2116,18 @@ function openTeacherModal(teacherId){
       <div class="field"><label>Contact / Phone</label><input type="text" id="tContact" value="${editing?esc(t.contact||''):''}"></div>
       <div class="field"><label>Email</label><input type="text" id="tEmail" value="${editing?esc(t.email||''):''}"></div>
     </div>
-    <div class="field"><label>Subjects Teaching</label><input type="text" id="tSubjects" value="${editing?esc(t.subjects||''):''}" placeholder="e.g. Mathematics, Physics"></div>
-    <div class="field"><label>Classes Assigned</label>
-      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:6px;padding:10px;background:var(--paper-2);border-radius:8px;border:1px solid var(--line);">
-        ${CLASS_DEFS.map(c=>`<label style="display:flex;align-items:center;gap:5px;font-size:12px;font-weight:400;"><input type="checkbox" class="tClassBox" value="${c.code}" ${assignedNow.has(c.code)?'checked':''}> ${esc(c.code)}</label>`).join('')}
+    <div class="field"><label>Subjects Teaching (free text summary, optional)</label><input type="text" id="tSubjects" value="${editing?esc(t.subjects||''):''}" placeholder="e.g. Mathematics, Physics"></div>
+    <div class="field"><label>Classes Assigned — then pick the subject(s) taught in each</label>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:10px;background:var(--paper-2);border-radius:8px;border:1px solid var(--line);max-height:340px;overflow-y:auto;">
+        ${CLASS_DEFS.map(c=>`
+          <div class="tClassBlock">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;">
+              <input type="checkbox" class="tClassBox" data-classbox="${c.code}" value="${c.code}" ${assignedNow.has(c.code)?'checked':''}> ${esc(c.label)}
+            </label>
+            <div class="tSubjectsFor" data-for="${c.code}" style="display:${assignedNow.has(c.code)?'grid':'none'};grid-template-columns:repeat(3,1fr);gap:4px;margin:6px 0 0 22px;">
+              ${SUBJECTS.map(sub=>`<label style="display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:400;"><input type="checkbox" class="tSubjectBox" data-class="${c.code}" value="${esc(sub)}" ${(subjectsNow[c.code]||[]).includes(sub)?'checked':''}> ${esc(sub)}</label>`).join('')}
+            </div>
+          </div>`).join('')}
       </div>
     </div>
     <div class="field2">
@@ -2142,6 +2155,12 @@ function openTeacherModal(teacherId){
     <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="tSave">${editing?'Save Changes':'Add Teacher'}</button></div>
   `);
   modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelectorAll('.tClassBox').forEach(cb=>{
+    cb.onchange = ()=>{
+      const panel = modalRoot.querySelector(`.tSubjectsFor[data-for="${cb.dataset.classbox}"]`);
+      if(panel) panel.style.display = cb.checked ? 'grid' : 'none';
+    };
+  });
   let pendingTDocs = editing ? [...(t.documents||[])] : [];
   modalRoot.querySelectorAll('[data-tdoc-remove]').forEach(b=>{
     b.onclick = ()=>{ pendingTDocs.splice(Number(b.dataset.tdocRemove),1); b.closest('div').remove(); };
@@ -2164,6 +2183,10 @@ function openTeacherModal(teacherId){
         pendingTDocs.push({name:f.name, url, uploaded_at:new Date().toISOString()});
       }
       const selectedClasses = [...modalRoot.querySelectorAll('.tClassBox:checked')].map(cb=>cb.value);
+      const subjectsForClass = {};
+      selectedClasses.forEach(cc=>{
+        subjectsForClass[cc] = [...modalRoot.querySelectorAll(`.tSubjectBox[data-class="${cc}"]:checked`)].map(cb=>cb.value);
+      });
       const payload = {
         id: teacherId2, name,
         contact: modalRoot.querySelector('#tContact').value.trim(),
@@ -2180,11 +2203,11 @@ function openTeacherModal(teacherId){
       const ayId = STATE.currentAcademicYearId || 'ay_1';
       await sb.from('class_teachers').delete().eq('teacher_id', teacherId2).eq('academic_year_id', ayId);
       if(selectedClasses.length){
-        const rows = selectedClasses.map(cc=>({id:`ct_${teacherId2}_${cc}`, academic_year_id:ayId, class_code:cc, teacher_id:teacherId2}));
+        const rows = selectedClasses.map(cc=>({id:`ct_${teacherId2}_${cc}`, academic_year_id:ayId, class_code:cc, teacher_id:teacherId2, subjects:subjectsForClass[cc]||[]}));
         await sb.from('class_teachers').insert(rows);
       }
       STATE.classTeachers = STATE.classTeachers.filter(ct=>ct.teacher_id!==teacherId2);
-      selectedClasses.forEach(cc=> STATE.classTeachers.push({id:`ct_${teacherId2}_${cc}`, academic_year_id:ayId, class_code:cc, teacher_id:teacherId2}));
+      selectedClasses.forEach(cc=> STATE.classTeachers.push({id:`ct_${teacherId2}_${cc}`, academic_year_id:ayId, class_code:cc, teacher_id:teacherId2, subjects:subjectsForClass[cc]||[]}));
       if(editing){ Object.assign(t, payload); } else { STATE.teachers.push(payload); }
       closeModal(); render(); toast(editing? 'Teacher updated' : 'Teacher added');
     }catch(err){
