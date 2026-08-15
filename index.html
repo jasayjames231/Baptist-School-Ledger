@@ -238,6 +238,7 @@ function mkFees(tS1,tS2,reg,exam,act,uni,lib){
 }
 const CATEGORIES = ['tuition','registration','exam','activity','uniform','library','pta','computer','sports','breakage','idcard'];
 const CATEGORY_LABELS = {tuition:'Tuition', registration:'Registration', exam:'Exam Fee', activity:'Activity Fee', uniform:'Uniform Fee', library:'Library Fee', pta:'PTA Fee', computer:'Computer Fee', sports:'Sports Fee', breakage:'Breakage Fee', idcard:'ID Card Fee'};
+const DEFAULT_EXPENDITURE_CATEGORIES = ['Utilities','Stationery','Salaries','Maintenance','Transportation','Other'];
 const DEFAULT_FEES = {
   ABC: mkFees(800,800,300,200,150,250,100),
   K1:  mkFees(900,900,300,200,150,250,100),
@@ -267,9 +268,9 @@ const RANK_PERIODS = [['p1','Period 1'],['p2','Period 2'],['p3','Period 3'],['ex
   ['p4','Period 4'],['p5','Period 5'],['p6','Period 6'],['examS2','Semester 2 Exam'],['avgS2','Semester 2 Average'],['overall','Overall Average']];
 
 const ROLES = {
-  admin:  {label:'Admin',            can:{manageUsers:true,  editFees:true,  manageStudents:true, submitPayment:true, approvePayments:true, deletePayments:true, manageGrades:true, manageTeachers:true}},
-  bursar: {label:'Bursar / Cashier', can:{manageUsers:false, editFees:false, manageStudents:true, submitPayment:true, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false}},
-  viewer: {label:'Viewer',            can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false}},
+  admin:  {label:'Admin',            can:{manageUsers:true,  editFees:true,  manageStudents:true, submitPayment:true, approvePayments:true, deletePayments:true, manageGrades:true, manageTeachers:true, submitExpenditure:true, approveExpenditures:true, deleteExpenditures:true, manageExpenditureCategories:true}},
+  bursar: {label:'Bursar / Cashier', can:{manageUsers:false, editFees:false, manageStudents:true, submitPayment:true, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:true, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false}},
+  viewer: {label:'Viewer',            can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false}},
 };
 function can(perm){ return !!(STATE.currentUser && ROLES[STATE.currentUser.role] && ROLES[STATE.currentUser.role].can[perm]); }
 
@@ -282,6 +283,7 @@ let STATE = {
   fees: JSON.parse(JSON.stringify(DEFAULT_FEES)),
   students:[], log:[], users:[], grades:[],
   teachers:[], teacherPayments:[], taxBrackets: JSON.parse(JSON.stringify(DEFAULT_TAX_BRACKETS)),
+  expenditures:[], expenditureCategories: JSON.parse(JSON.stringify(DEFAULT_EXPENDITURE_CATEGORIES)),
   receiptCounter:1,
   view:'dashboard',
   dashboardClass:'ALL',
@@ -292,6 +294,7 @@ let STATE = {
   rankClass: CLASS_DEFS[0].code,
   rankPeriod: 'avgS1',
   teachersTab:'profiles',
+  expTab:'pending',
   outboxCount:0, offlineBoot:false, classTeachers:[],
 };
 
@@ -343,6 +346,19 @@ function logToRow(l){
     reviewed_by:l.reviewedBy||null, reviewed_by_name:l.reviewedByName||null, reviewed_at:l.reviewedAt||null, review_note:l.reviewNote||null,
     deleted_by:l.deletedBy||null, deleted_by_name:l.deletedByName||null, deleted_at:l.deletedAt||null, delete_note:l.deleteNote||null,
     school_id: STATE.currentUser.schoolId};
+}
+function expenditureFromRow(r){
+  return {id:r.id, category:r.category, description:r.description, paidTo:r.paid_to, amount:Number(r.amount), date:r.date, status:r.status,
+    requestedBy:r.requested_by, requestedByName:r.requested_by_name, requestedAt:r.requested_at,
+    reviewedBy:r.reviewed_by, reviewedByName:r.reviewed_by_name, reviewedAt:r.reviewed_at, reviewNote:r.review_note,
+    deletedBy:r.deleted_by, deletedByName:r.deleted_by_name, deletedAt:r.deleted_at, deleteNote:r.delete_note};
+}
+function expenditureToRow(x){
+  return {id:x.id, category:x.category, description:x.description||null, paid_to:x.paidTo||null, amount:x.amount, date:x.date, status:x.status,
+    requested_by:x.requestedBy||null, requested_by_name:x.requestedByName||null, requested_at:x.requestedAt||null,
+    reviewed_by:x.reviewedBy||null, reviewed_by_name:x.reviewedByName||null, reviewed_at:x.reviewedAt||null, review_note:x.reviewNote||null,
+    deleted_by:x.deletedBy||null, deleted_by_name:x.deletedByName||null, deleted_at:x.deletedAt||null, delete_note:x.deleteNote||null,
+    academic_year_id: STATE.currentAcademicYearId, school_id: STATE.currentUser.schoolId};
 }
 function gradeFromRow(r){
   return {id:r.id, studentId:r.student_id, subject:r.subject,
@@ -510,6 +526,7 @@ async function loadAllData(){
     CLASS_DEFS.forEach(c=>{ STATE.fees[c.code] = {...DEFAULT_FEES[c.code], ...(savedFees[c.code]||{})}; });
     STATE.receiptCounter = Number(cfgRes.data.receipt_counter)||1;
     STATE.taxBrackets = (cfgRes.data.tax_brackets && cfgRes.data.tax_brackets.length) ? cfgRes.data.tax_brackets : JSON.parse(JSON.stringify(DEFAULT_TAX_BRACKETS));
+    STATE.expenditureCategories = (cfgRes.data.expenditure_categories && cfgRes.data.expenditure_categories.length) ? cfgRes.data.expenditure_categories : JSON.parse(JSON.stringify(DEFAULT_EXPENDITURE_CATEGORIES));
   }
   STATE.students = (studentsRes.data||[]).map(studentFromRow);
   const enrByStudent = {};
@@ -540,6 +557,10 @@ async function loadAllData(){
     STATE.teachers = (teachersRes.data||[]).map(teacherFromRow);
     STATE.teacherPayments = (payRes.data||[]).map(paymentFromRow);
     STATE.classTeachers = ctRes.data||[];
+  }
+  if(can('submitExpenditure')||can('approveExpenditures')){
+    const {data:expData} = await sb.from('expenditures').select('*').eq('academic_year_id', ayId).order('date', {ascending:false});
+    STATE.expenditures = (expData||[]).map(expenditureFromRow);
   }
   STATE.outboxCount = (await getOutbox()).length;
   await cacheSnapshot();
@@ -723,12 +744,14 @@ function render(){
   const app = document.getElementById('appRoot');
 
   const pendingCount = STATE.log.filter(l=>l.status==='pending').length;
+  const pendingExpCount = STATE.expenditures.filter(x=>x.status==='pending').length;
   const navItems = [
     ['dashboard','◆','Dashboard', null],
     can('editFees') ? ['fees','₤','Fee Structure', null] : null,
     ['students','☰','Students', null],
     (can('approvePayments')||can('submitPayment')) ? ['approvals','⏳','Approvals', pendingCount||null] : null,
     ['log','✎','Payment Log', null],
+    (can('submitExpenditure')||can('approveExpenditures')) ? ['expenditures','⛁','Expenditures', pendingExpCount||null] : null,
     can('manageGrades') ? ['grades','◈','Grades', null] : null,
     can('manageTeachers') ? ['teachers','🎓','Teachers', null] : null,
     can('manageUsers') ? ['users','◍','Users', null] : null,
@@ -773,6 +796,7 @@ function render(){
   else if(STATE.view==='students') renderStudents(main);
   else if(STATE.view==='approvals' && (can('approvePayments')||can('submitPayment'))) renderApprovals(main);
   else if(STATE.view==='log') renderLog(main);
+  else if(STATE.view==='expenditures' && (can('submitExpenditure')||can('approveExpenditures'))) renderExpenditures(main);
   else if(STATE.view==='grades' && can('manageGrades')) renderGrades(main);
   else if(STATE.view==='teachers' && can('manageTeachers')) renderTeachers(main);
   else if(STATE.view==='users' && can('manageUsers')) renderUsers(main);
@@ -842,6 +866,20 @@ function renderDashboard(main){
           <tr><td class="mono">${esc(l.date)}</td><td>${esc(l.name)||esc(l.studentId)}</td><td class="muted">${esc(CLASS_LABEL[l.classCode]||l.classCode)}</td><td>S${l.semester}</td><td class="tright mono">${fmt(l.amount)}</td><td class="mono muted">${esc(l.receipt)||'—'}</td></tr>`).join('')}
         </tbody></table>`}
     </div>
+    ${(can('submitExpenditure')||can('approveExpenditures')) ? (()=>{
+      const allFin = STATE.students.map(calcFinance);
+      const allCollected = allFin.reduce((a,f)=>a+f.totalPaid,0);
+      const allSpent = STATE.expenditures.filter(x=>x.status==='approved').reduce((a,x)=>a+x.amount,0);
+      const net = allCollected - allSpent;
+      return `
+    <div class="panel"><h3>Collections vs. Expenditures — all classes, ${esc(STATE.currentAcademicYearLabel||STATE.schoolInfo.year)}</h3>
+      <div class="stat-row">
+        <div class="stat"><div class="label">Total Collected</div><div class="value" style="color:var(--green)">${fmt(allCollected)}</div></div>
+        <div class="stat"><div class="label">Total Expenditure</div><div class="value" style="color:var(--red)">${fmt(allSpent)}</div></div>
+        <div class="stat"><div class="label">Net</div><div class="value" style="color:${net>=0?'var(--green)':'var(--red)'}">${fmt(net)}</div></div>
+      </div>
+    </div>`;
+    })() : ''}
   `;
   main.querySelector('#dashClass').onchange = e=>{ STATE.dashboardClass = e.target.value; render(); };
   const addBtn = main.querySelector('[data-action="add-student"]');
@@ -1068,6 +1106,178 @@ function deletePostedPayment(logId){
     const results = await Promise.all(ops);
     if(results.some(r=>r.error)){ toast('Error deleting payment'); await refreshStudentsAndLog(); }
     closeModal(); render(); toast('Payment deleted — recorded in the audit trail');
+  });
+}
+
+/* ============================= EXPENDITURES ============================= */
+function renderExpenditures(main){
+  const tab = STATE.expTab || 'pending';
+  const pending = STATE.expenditures.filter(x=>x.status==='pending').sort((a,b)=> new Date(a.requestedAt)-new Date(b.requestedAt));
+  const posted = STATE.expenditures.filter(x=>x.status==='approved').slice().sort((a,b)=> new Date(b.date)-new Date(a.date));
+  const audit = STATE.expenditures.filter(x=>x.status==='rejected'||x.status==='deleted').slice().sort((a,b)=> new Date(b.reviewedAt||b.deletedAt)-new Date(a.reviewedAt||a.deletedAt));
+  const totalSpent = posted.reduce((a,x)=>a+x.amount,0);
+  const tabs = [['pending','Pending Approval',pending.length],['posted','Posted',posted.length],['audit','Audit Trail',audit.length]];
+  if(can('manageExpenditureCategories')) tabs.push(['categories','Categories',null]);
+
+  main.innerHTML = `
+    <div class="topline">
+      <div><h2>Expenditures</h2><p>Utilities, stationery, salaries, and everything else spent — every request is reviewed before it counts as posted.</p></div>
+      ${can('submitExpenditure')? `<button class="btn" id="addExpBtn">+ New Expenditure Request</button>`:''}
+    </div>
+    <div class="stat-row">
+      <div class="stat"><div class="label">Posted Expenditure</div><div class="value" style="color:var(--red)">${fmt(totalSpent)}</div><div class="sub">${posted.length} posted entr${posted.length===1?'y':'ies'}</div></div>
+      <div class="stat"><div class="label">Awaiting Approval</div><div class="value" style="color:var(--blue)">${pending.length}</div><div class="sub">${fmt(pending.reduce((a,x)=>a+x.amount,0))} pending review</div></div>
+    </div>
+    <div class="tabs">${tabs.map(([id,label,n])=>`<button class="tab ${tab===id?'active':''}" data-etab="${id}">${label}${n?` (${n})`:''}</button>`).join('')}</div>
+    <div id="expBody"></div>
+  `;
+  main.querySelectorAll('[data-etab]').forEach(b=> b.onclick=()=>{ STATE.expTab = b.dataset.etab; render(); });
+  const addBtn = main.querySelector('#addExpBtn'); if(addBtn) addBtn.onclick = openExpenditureModal;
+
+  const body = main.querySelector('#expBody');
+  if(tab==='categories' && can('manageExpenditureCategories')){ renderExpenditureCategories(body); return; }
+
+  const list = tab==='pending'? pending : tab==='posted'? posted : audit;
+  if(list.length===0){
+    body.innerHTML = `<div class="panel"><div class="empty"><div class="big">${tab==='pending'?'✅':tab==='posted'?'🧾':'🗂️'}</div><h4>${tab==='pending'?'Nothing waiting on review':tab==='posted'?'No posted expenditures yet':'No rejected or deleted entries'}</h4></div></div>`;
+    return;
+  }
+  if(tab==='pending'){
+    body.innerHTML = `<div class="panel" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Requested</th><th>Category</th><th>Description</th><th>Paid To</th><th class="tright">Amount</th><th>Date</th><th>Requested By</th><th></th></tr></thead>
+      <tbody>${pending.map(x=>`
+        <tr><td class="mono">${fmtDT(x.requestedAt)}</td><td>${esc(x.category)}</td><td>${esc(x.description)||'—'}</td><td class="muted">${esc(x.paidTo)||'—'}</td>
+        <td class="tright mono" style="font-weight:600;">${fmt(x.amount)}</td><td class="mono">${esc(x.date)}</td><td>${esc(x.requestedByName)}</td>
+        <td>${can('approveExpenditures')? `<button class="btn small" data-eapprove="${x.id}">Approve</button><button class="btn small danger ghost" data-ereject="${x.id}">Reject</button>` : `<span class="badge pending">pending</span>`}</td></tr>`).join('')}
+      </tbody></table></div>`;
+    body.querySelectorAll('[data-eapprove]').forEach(b=> b.onclick=()=>approveExpenditure(b.dataset.eapprove));
+    body.querySelectorAll('[data-ereject]').forEach(b=> b.onclick=()=>rejectExpenditure(b.dataset.ereject));
+  } else if(tab==='posted'){
+    body.innerHTML = `<div class="panel" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Paid To</th><th class="tright">Amount</th><th>Approved By</th><th></th></tr></thead>
+      <tbody>${posted.map(x=>`
+        <tr><td class="mono">${esc(x.date)}</td><td>${esc(x.category)}</td><td>${esc(x.description)||'—'}</td><td class="muted">${esc(x.paidTo)||'—'}</td>
+        <td class="tright mono" style="font-weight:600;">${fmt(x.amount)}</td><td class="muted">${esc(x.reviewedByName)||'—'}</td>
+        <td>${can('deleteExpenditures')? `<button class="btn small ghost danger" data-edel="${x.id}">Delete</button>`:''}</td></tr>`).join('')}
+      </tbody></table></div>`;
+    body.querySelectorAll('[data-edel]').forEach(b=> b.onclick=()=>deletePostedExpenditure(b.dataset.edel));
+  } else {
+    body.innerHTML = `<div class="panel" style="padding:0;overflow-x:auto;">
+      <table><thead><tr><th>Status</th><th>Category</th><th>Description</th><th class="tright">Amount</th><th>By</th><th>When</th><th>Note</th></tr></thead>
+      <tbody>${audit.map(x=>`
+        <tr><td><span class="badge ${x.status}">${esc(x.status)}</span></td><td>${esc(x.category)}</td><td>${esc(x.description)||'—'}</td><td class="tright mono">${fmt(x.amount)}</td>
+        <td class="muted">${esc(x.status==='deleted'? x.deletedByName : x.reviewedByName)||'—'}</td>
+        <td class="mono muted" style="font-size:11px;">${fmtDT(x.status==='deleted'? x.deletedAt : x.reviewedAt)}</td>
+        <td style="white-space:normal;min-width:180px;">${esc(x.status==='deleted'? x.deleteNote : x.reviewNote)||'—'}</td></tr>`).join('')}
+      </tbody></table></div>`;
+  }
+}
+
+function renderExpenditureCategories(body){
+  body.innerHTML = `
+    <div class="panel">
+      <h3>Expenditure Categories</h3>
+      <p class="muted" style="font-size:12px;margin-top:-4px;">These appear in the category list when someone submits a new expenditure request.</p>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:12px;max-width:420px;">
+        ${STATE.expenditureCategories.map((c,i)=>`
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="flex:1;padding:8px 10px;background:var(--bg2,#F5F6F8);border-radius:6px;">${esc(c)}</span>
+            <button class="btn small ghost danger" data-catdel="${i}">Remove</button>
+          </div>`).join('')}
+      </div>
+      <div class="field2" style="margin-top:14px;max-width:420px;">
+        <div class="field"><label>New category</label><input type="text" id="newCatInput" placeholder="e.g. Repairs"></div>
+      </div>
+      <button class="btn ghost" id="addCatBtn" style="margin-top:6px;">+ Add Category</button>
+    </div>
+  `;
+  body.querySelectorAll('[data-catdel]').forEach(b=> b.onclick=()=>removeExpenditureCategory(Number(b.dataset.catdel)));
+  body.querySelector('#addCatBtn').onclick = ()=>{
+    const inp = body.querySelector('#newCatInput');
+    const val = inp.value.trim();
+    if(!val){ toast('Enter a category name'); return; }
+    if(STATE.expenditureCategories.some(c=>c.toLowerCase()===val.toLowerCase())){ toast('That category already exists'); return; }
+    addExpenditureCategory(val);
+  };
+}
+async function addExpenditureCategory(name){
+  STATE.expenditureCategories = [...STATE.expenditureCategories, name];
+  const {error} = await sb.from('school_config').update({expenditure_categories:STATE.expenditureCategories}).eq('school_id', STATE.currentUser.schoolId);
+  if(error){ toast('Error saving: '+error.message); return; }
+  render(); toast('Category added');
+}
+async function removeExpenditureCategory(idx){
+  const removed = STATE.expenditureCategories[idx];
+  const inUse = STATE.expenditures.some(x=>x.category===removed && x.status!=='deleted');
+  if(inUse){ toast('Can\'t remove — this category is used by an existing expenditure record'); return; }
+  STATE.expenditureCategories = STATE.expenditureCategories.filter((c,i)=>i!==idx);
+  const {error} = await sb.from('school_config').update({expenditure_categories:STATE.expenditureCategories}).eq('school_id', STATE.currentUser.schoolId);
+  if(error){ toast('Error saving: '+error.message); return; }
+  render(); toast('Category removed');
+}
+
+function openExpenditureModal(){
+  if(!can('submitExpenditure')) return;
+  if(STATE.expenditureCategories.length===0){ toast('Add an expenditure category first'); return; }
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>New Expenditure Request</h3>
+    <div class="note-box">This request will be sent for review and won't count as spent until an Admin approves it.</div>
+    <div class="field" style="margin-top:12px;"><label>Category</label><select id="eCategory">${STATE.expenditureCategories.map(c=>`<option value="${esc(c)}">${esc(c)}</option>`).join('')}</select></div>
+    <div class="field"><label>Description</label><input type="text" id="eDesc" placeholder="e.g. March electricity bill"></div>
+    <div class="field2">
+      <div class="field"><label>Amount (LRD)</label><input type="number" id="eAmount" min="0" step="0.01" placeholder="0.00"></div>
+      <div class="field"><label>Date</label><input type="date" id="eDate" value="${new Date().toISOString().slice(0,10)}"></div>
+    </div>
+    <div class="field"><label>Paid To (optional)</label><input type="text" id="ePaidTo" placeholder="e.g. LEC, vendor name"></div>
+    <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="eSave">Submit for Approval</button></div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#eSave').onclick = async ()=>{
+    const category = modalRoot.querySelector('#eCategory').value;
+    const description = modalRoot.querySelector('#eDesc').value.trim();
+    const amount = Number(modalRoot.querySelector('#eAmount').value);
+    const date = modalRoot.querySelector('#eDate').value || new Date().toISOString().slice(0,10);
+    const paidTo = modalRoot.querySelector('#ePaidTo').value.trim();
+    if(!amount || amount<=0){ toast('Enter a valid amount'); return; }
+    const saveBtn = modalRoot.querySelector('#eSave'); saveBtn.disabled = true;
+    const entry = {
+      id: 'e'+Date.now()+Math.random().toString(36).slice(2,7),
+      category, description, paidTo, amount, date, status:'pending',
+      requestedBy: STATE.currentUser.id, requestedByName: STATE.currentUser.fullName, requestedAt: new Date().toISOString(),
+    };
+    const {error} = await sb.from('expenditures').insert(expenditureToRow(entry));
+    if(error){ toast('Error: '+error.message); saveBtn.disabled=false; return; }
+    STATE.expenditures.unshift(entry);
+    closeModal(); render(); toast(`Expenditure of ${fmt(amount)} submitted for approval`);
+  };
+}
+async function approveExpenditure(id){
+  const x = STATE.expenditures.find(e=>e.id===id);
+  if(!x || x.status!=='pending') return;
+  x.status='approved'; x.reviewedBy=STATE.currentUser.id; x.reviewedByName=STATE.currentUser.fullName; x.reviewedAt=new Date().toISOString();
+  const {error} = await sb.from('expenditures').update(expenditureToRow(x)).eq('id', id);
+  if(error){ toast('Error approving: '+error.message); return; }
+  render(); toast(`Approved — ${fmt(x.amount)} posted to Expenditures`);
+}
+function rejectExpenditure(id){
+  const x = STATE.expenditures.find(e=>e.id===id);
+  if(!x || x.status!=='pending') return;
+  openReasonModal('Reject Expenditure', `${x.category} · ${fmt(x.amount)} · ${x.description||'—'}. This will not count as spent.`, 'Reject Request', async (reason)=>{
+    x.status='rejected'; x.reviewedBy=STATE.currentUser.id; x.reviewedByName=STATE.currentUser.fullName; x.reviewedAt=new Date().toISOString(); x.reviewNote=reason;
+    const {error} = await sb.from('expenditures').update(expenditureToRow(x)).eq('id', id);
+    if(error){ toast('Error: '+error.message); }
+    closeModal(); render(); toast('Expenditure rejected');
+  });
+}
+function deletePostedExpenditure(id){
+  const x = STATE.expenditures.find(e=>e.id===id);
+  if(!x || x.status!=='approved') return;
+  openReasonModal('Delete Posted Expenditure', `${x.category} · ${fmt(x.amount)} · posted ${fmtDT(x.reviewedAt)}. This moves the entry to the Audit Trail with your note attached — it is never fully erased.`, 'Delete Expenditure', async (reason)=>{
+    x.status='deleted'; x.deletedBy=STATE.currentUser.id; x.deletedByName=STATE.currentUser.fullName; x.deletedAt=new Date().toISOString(); x.deleteNote=reason;
+    const {error} = await sb.from('expenditures').update(expenditureToRow(x)).eq('id', id);
+    if(error){ toast('Error: '+error.message); }
+    closeModal(); render(); toast('Expenditure deleted — recorded in the audit trail');
   });
 }
 
