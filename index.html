@@ -286,6 +286,7 @@ let STATE = {
   students:[], log:[], users:[], grades:[],
   teachers:[], teacherPayments:[], taxBrackets: JSON.parse(JSON.stringify(DEFAULT_TAX_BRACKETS)),
   expenditures:[], expenditureCategories: JSON.parse(JSON.stringify(DEFAULT_EXPENDITURE_CATEGORIES)),
+  classSubjects:{},
   receiptCounter:1,
   view:'dashboard',
   dashboardClass:'ALL',
@@ -529,6 +530,7 @@ async function loadAllData(){
     STATE.receiptCounter = Number(cfgRes.data.receipt_counter)||1;
     STATE.taxBrackets = (cfgRes.data.tax_brackets && cfgRes.data.tax_brackets.length) ? cfgRes.data.tax_brackets : JSON.parse(JSON.stringify(DEFAULT_TAX_BRACKETS));
     STATE.expenditureCategories = (cfgRes.data.expenditure_categories && cfgRes.data.expenditure_categories.length) ? cfgRes.data.expenditure_categories : JSON.parse(JSON.stringify(DEFAULT_EXPENDITURE_CATEGORIES));
+    STATE.classSubjects = cfgRes.data.class_subjects || {};
   }
   STATE.students = (studentsRes.data||[]).map(studentFromRow);
   const enrByStudent = {};
@@ -782,6 +784,7 @@ function render(){
           : `<div class="conn-status conn-off">🔴 Offline${STATE.outboxCount>0? ` — ${STATE.outboxCount} payment${STATE.outboxCount>1?'s':''} queued`:''}</div>`}
         <button data-action="settings">School Info</button>
         ${STATE.currentUser.role==='admin'? `<button data-action="academicyear">Academic Year</button>`:''}
+        ${STATE.currentUser.role==='admin'? `<button data-action="curriculum">Curriculum</button>`:''}
         <button data-action="logout">Log Out</button>
       </div>
     </div>
@@ -790,6 +793,7 @@ function render(){
   app.querySelectorAll('[data-nav]').forEach(b=>{ b.onclick = ()=>{ STATE.view=b.dataset.nav; render(); }; });
   app.querySelector('[data-action="settings"]').onclick = openSchoolInfoModal;
   const ayBtn = app.querySelector('[data-action="academicyear"]'); if(ayBtn) ayBtn.onclick = openAcademicYearModal;
+  const curBtn = app.querySelector('[data-action="curriculum"]'); if(curBtn) curBtn.onclick = openCurriculumModal;
   app.querySelector('[data-action="logout"]').onclick = logout;
 
   const main = document.getElementById('mainArea');
@@ -1380,6 +1384,44 @@ function openAcademicYearModal(){
     const btn = modalRoot.querySelector('#aySave'); btn.disabled=true; btn.textContent='Starting…';
     try{ await startNewAcademicYear(label); closeModal(); render(); toast(`New academic year "${label}" started`); }
     catch(err){ toast('Error: '+(err.message||err)); btn.disabled=false; btn.textContent='Start New Year'; }
+  };
+}
+
+function openCurriculumModal(){
+  if(STATE.currentUser.role!=='admin') return;
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>Curriculum — Subjects per Class</h3>
+    <p class="mhint">Set which subjects belong to each class, once. Whenever a teacher is assigned to a class, these subjects come with it automatically — no need to re-pick them per teacher.</p>
+    <div style="display:flex;flex-direction:column;gap:10px;max-height:430px;overflow-y:auto;padding:4px 2px;">
+      ${CLASS_DEFS.map(c=>`
+        <div class="curClassBlock" data-class="${c.code}" style="padding:10px;background:var(--paper-2);border-radius:8px;border:1px solid var(--line);">
+          <div style="font-weight:600;font-size:13px;margin-bottom:6px;">${esc(c.label)}</div>
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:4px;">
+            ${SUBJECTS.map(sub=>`<label style="display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:400;"><input type="checkbox" class="curSubBox" data-class="${c.code}" value="${esc(sub)}" ${(STATE.classSubjects[c.code]||[]).includes(sub)?'checked':''}> ${esc(sub)}</label>`).join('')}
+          </div>
+        </div>`).join('')}
+    </div>
+    <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="curSave">Save Curriculum</button></div>
+  `, 'wide');
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#curSave').onclick = async ()=>{
+    const btn = modalRoot.querySelector('#curSave'); btn.disabled=true; btn.textContent='Saving…';
+    const updated = {};
+    CLASS_DEFS.forEach(c=>{
+      updated[c.code] = [...modalRoot.querySelectorAll(`.curSubBox[data-class="${c.code}"]:checked`)].map(cb=>cb.value);
+    });
+    const {error} = await sb.from('school_config').update({class_subjects:updated}).eq('school_id', STATE.currentUser.schoolId);
+    if(error){ toast('Error saving: '+error.message); btn.disabled=false; btn.textContent='Save Curriculum'; return; }
+    STATE.classSubjects = updated;
+    // Keep every already-assigned teacher's subjects in sync with the updated curriculum.
+    const ayId = STATE.currentAcademicYearId;
+    const updates = STATE.classTeachers.map(ct=>{
+      ct.subjects = updated[ct.class_code] || [];
+      return sb.from('class_teachers').update({subjects: ct.subjects}).eq('id', ct.id).eq('academic_year_id', ayId);
+    });
+    if(updates.length) await Promise.all(updates);
+    closeModal(); render(); toast('Curriculum updated — assigned teachers now reflect the new subject lists');
   };
 }
 
@@ -2098,8 +2140,6 @@ function openTeacherModal(teacherId){
   const editing = !!teacherId;
   const t = editing ? STATE.teachers.find(x=>x.id===teacherId) : null;
   const assignedNow = editing ? new Set(STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).map(ct=>ct.class_code)) : new Set();
-  const subjectsNow = {};
-  if(editing) STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).forEach(ct=>{ subjectsNow[ct.class_code] = ct.subjects||[]; });
   openModal(`
     <button class="close-x" data-close>×</button>
     <h3>${editing? 'Edit Teacher':'Add Teacher'}</h3>
@@ -2117,17 +2157,15 @@ function openTeacherModal(teacherId){
       <div class="field"><label>Email</label><input type="text" id="tEmail" value="${editing?esc(t.email||''):''}"></div>
     </div>
     <div class="field"><label>Subjects Teaching (free text summary, optional)</label><input type="text" id="tSubjects" value="${editing?esc(t.subjects||''):''}" placeholder="e.g. Mathematics, Physics"></div>
-    <div class="field"><label>Classes Assigned — then pick the subject(s) taught in each</label>
-      <div style="display:flex;flex-direction:column;gap:10px;padding:10px;background:var(--paper-2);border-radius:8px;border:1px solid var(--line);max-height:340px;overflow-y:auto;">
-        ${CLASS_DEFS.map(c=>`
-          <div class="tClassBlock">
-            <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;">
-              <input type="checkbox" class="tClassBox" data-classbox="${c.code}" value="${c.code}" ${assignedNow.has(c.code)?'checked':''}> ${esc(c.label)}
-            </label>
-            <div class="tSubjectsFor" data-for="${c.code}" style="display:${assignedNow.has(c.code)?'grid':'none'};grid-template-columns:repeat(3,1fr);gap:4px;margin:6px 0 0 22px;">
-              ${SUBJECTS.map(sub=>`<label style="display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:400;"><input type="checkbox" class="tSubjectBox" data-class="${c.code}" value="${esc(sub)}" ${(subjectsNow[c.code]||[]).includes(sub)?'checked':''}> ${esc(sub)}</label>`).join('')}
-            </div>
-          </div>`).join('')}
+    <div class="field"><label>Classes Assigned — subjects for each class come from the Curriculum, set by an Admin</label>
+      <div style="display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--paper-2);border-radius:8px;border:1px solid var(--line);max-height:320px;overflow-y:auto;">
+        ${CLASS_DEFS.map(c=>{
+          const subs = STATE.classSubjects[c.code]||[];
+          return `<label style="display:flex;flex-direction:column;gap:2px;font-size:12.5px;font-weight:600;padding:4px 0;border-bottom:1px solid var(--line);">
+            <span style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="tClassBox" value="${c.code}" ${assignedNow.has(c.code)?'checked':''}> ${esc(c.label)}</span>
+            <span class="muted" style="font-weight:400;font-size:11px;margin-left:22px;">${subs.length? esc(subs.join(', ')) : 'No subjects set for this class yet — add them in Curriculum Settings'}</span>
+          </label>`;
+        }).join('')}
       </div>
     </div>
     <div class="field2">
@@ -2155,12 +2193,6 @@ function openTeacherModal(teacherId){
     <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="tSave">${editing?'Save Changes':'Add Teacher'}</button></div>
   `);
   modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
-  modalRoot.querySelectorAll('.tClassBox').forEach(cb=>{
-    cb.onchange = ()=>{
-      const panel = modalRoot.querySelector(`.tSubjectsFor[data-for="${cb.dataset.classbox}"]`);
-      if(panel) panel.style.display = cb.checked ? 'grid' : 'none';
-    };
-  });
   let pendingTDocs = editing ? [...(t.documents||[])] : [];
   modalRoot.querySelectorAll('[data-tdoc-remove]').forEach(b=>{
     b.onclick = ()=>{ pendingTDocs.splice(Number(b.dataset.tdocRemove),1); b.closest('div').remove(); };
@@ -2184,9 +2216,7 @@ function openTeacherModal(teacherId){
       }
       const selectedClasses = [...modalRoot.querySelectorAll('.tClassBox:checked')].map(cb=>cb.value);
       const subjectsForClass = {};
-      selectedClasses.forEach(cc=>{
-        subjectsForClass[cc] = [...modalRoot.querySelectorAll(`.tSubjectBox[data-class="${cc}"]:checked`)].map(cb=>cb.value);
-      });
+      selectedClasses.forEach(cc=>{ subjectsForClass[cc] = STATE.classSubjects[cc] || []; });
       const payload = {
         id: teacherId2, name,
         contact: modalRoot.querySelector('#tContact').value.trim(),
