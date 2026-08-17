@@ -44,6 +44,8 @@
   .side{width:230px;flex-shrink:0;background:var(--navy);color:#EDE7D6;display:flex;flex-direction:column;padding:22px 16px;}
   .brand{display:flex;align-items:flex-start;gap:10px;margin-bottom:26px;padding:0 4px;}
   .brand-star{font-size:20px;color:var(--gold);line-height:1;margin-top:2px;}
+  .brand-logo{width:32px;height:32px;object-fit:contain;border-radius:6px;margin-top:2px;flex-shrink:0;}
+  .auth-brand .logo{width:26px;height:26px;object-fit:contain;border-radius:5px;}
   .brand-text h1{font-family:'Fraunces',serif;font-size:16.5px;font-weight:600;margin:0;line-height:1.25;color:#fff;}
   .brand-text span{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#B9C3D6;}
   nav{display:flex;flex-direction:column;gap:2px;margin-top:6px;}
@@ -258,7 +260,9 @@ const DEFAULT_FEES = {
   G11: mkFees(1800,1800,600,500,300,450,200),
   G12: mkFees(2000,2000,600,600,300,450,200),
 };
-const DEFAULT_SCHOOL_INFO = {name:'', address:'', county:'', year:'2025/2026', principal:'', bursar:'', activated:''};
+const DEFAULT_SCHOOL_INFO = {name:'', address:'', county:'', year:'2025/2026', principal:'', bursar:'', activated:'', logoUrl:''};
+const GRADE_PERIOD_KEYS = [['p1','Period 1'],['p2','Period 2'],['p3','Period 3'],['exam_s1','Semester 1 Exam'],['p4','Period 4'],['p5','Period 5'],['p6','Period 6'],['exam_s2','Semester 2 Exam']];
+const GRADE_JS_TO_DB = {p1:'p1',p2:'p2',p3:'p3',examS1:'exam_s1',p4:'p4',p5:'p5',p6:'p6',examS2:'exam_s2'};
 const DEFAULT_TAX_BRACKETS = [
   {min:0, max:5000, rate:0},
   {min:5000, max:15000, rate:5},
@@ -270,9 +274,10 @@ const RANK_PERIODS = [['p1','Period 1'],['p2','Period 2'],['p3','Period 3'],['ex
   ['p4','Period 4'],['p5','Period 5'],['p6','Period 6'],['examS2','Semester 2 Exam'],['avgS2','Semester 2 Average'],['overall','Overall Average']];
 
 const ROLES = {
-  admin:  {label:'Admin',            can:{manageUsers:true,  editFees:true,  manageStudents:true, submitPayment:true, approvePayments:true, deletePayments:true, manageGrades:true, manageTeachers:true, submitExpenditure:true, approveExpenditures:true, deleteExpenditures:true, manageExpenditureCategories:true}},
-  bursar: {label:'Bursar / Cashier', can:{manageUsers:false, editFees:false, manageStudents:true, submitPayment:true, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:true, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false}},
-  viewer: {label:'Viewer',            can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false}},
+  admin:  {label:'Admin',            can:{manageUsers:true,  editFees:true,  manageStudents:true, submitPayment:true, approvePayments:true, deletePayments:true, manageGrades:true, manageTeachers:true, submitExpenditure:true, approveExpenditures:true, deleteExpenditures:true, manageExpenditureCategories:true, enterGrades:true, manageGradePeriods:true}},
+  bursar: {label:'Bursar / Cashier', can:{manageUsers:false, editFees:false, manageStudents:true, submitPayment:true, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:true, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:false, manageGradePeriods:false}},
+  viewer: {label:'Viewer',            can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:false, manageGradePeriods:false}},
+  teacher:{label:'Teacher',          can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:true, manageGradePeriods:false}},
 };
 function can(perm){ return !!(STATE.currentUser && ROLES[STATE.currentUser.role] && ROLES[STATE.currentUser.role].can[perm]); }
 
@@ -286,7 +291,7 @@ let STATE = {
   students:[], log:[], users:[], grades:[],
   teachers:[], teacherPayments:[], taxBrackets: JSON.parse(JSON.stringify(DEFAULT_TAX_BRACKETS)),
   expenditures:[], expenditureCategories: JSON.parse(JSON.stringify(DEFAULT_EXPENDITURE_CATEGORIES)),
-  classSubjects:{},
+  classSubjects:{}, gradePeriods:{}, myGradesClass:'',
   receiptCounter:1,
   view:'dashboard',
   dashboardClass:'ALL',
@@ -504,7 +509,8 @@ async function initAuth(){
 async function loadProfileAndData(user){
   const {data:profile, error} = await sb.from('profiles').select('*').eq('id',user.id).single();
   if(error || !profile){ STATE.authError='Could not load your profile. Please try signing in again.'; await sb.auth.signOut(); STATE.loaded=true; render(); return; }
-  STATE.currentUser = {id:user.id, email:user.email, fullName:profile.full_name||user.email, role:profile.role, schoolId:profile.school_id||'school_1'};
+  STATE.currentUser = {id:user.id, email:user.email, fullName:profile.full_name||user.email, role:profile.role, schoolId:profile.school_id||'school_1', teacherId:profile.teacher_id||null};
+  if(profile.role==='teacher') STATE.view = 'mygrades';
   await loadAllData();
   STATE.loaded = true;
   render();
@@ -515,6 +521,7 @@ async function loadAllData(){
   const ayId = curYear ? curYear.id : 'ay_1';
   STATE.currentAcademicYearId = ayId;
   STATE.currentAcademicYearLabel = curYear ? curYear.label : (STATE.schoolInfo.year||'');
+  STATE.gradePeriods = (curYear && curYear.grade_periods) ? curYear.grade_periods : {};
   const [cfgRes, studentsRes, enrRes, logRes, profilesRes] = await Promise.all([
     sb.from('school_config').select('*').eq('school_id', schoolId).single(),
     sb.from('students').select('*').order('id'),
@@ -547,7 +554,7 @@ async function loadAllData(){
     }
   });
   STATE.log = (logRes.data||[]).map(logFromRow);
-  STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, createdAt:r.created_at}));
+  STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, teacherId:r.teacher_id||null, createdAt:r.created_at}));
   if(can('manageGrades')){
     const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId).order('subject');
     STATE.grades = (gradesData||[]).map(gradeFromRow);
@@ -561,6 +568,18 @@ async function loadAllData(){
     STATE.teachers = (teachersRes.data||[]).map(teacherFromRow);
     STATE.teacherPayments = (payRes.data||[]).map(paymentFromRow);
     STATE.classTeachers = ctRes.data||[];
+  }
+  if(STATE.currentUser.role==='teacher' && STATE.currentUser.teacherId){
+    const {data:ctData} = await sb.from('class_teachers').select('*').eq('academic_year_id', ayId).eq('teacher_id', STATE.currentUser.teacherId);
+    STATE.classTeachers = ctData||[];
+    const myClasses = [...new Set((ctData||[]).map(r=>r.class_code))];
+    if(myClasses.length){
+      const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId);
+      const myStudentIds = new Set(STATE.students.filter(s=>myClasses.includes(s.classCode)).map(s=>s.id));
+      STATE.grades = (gradesData||[]).filter(g=>myStudentIds.has(g.student_id)).map(gradeFromRow);
+    } else {
+      STATE.grades = [];
+    }
   }
   if(can('submitExpenditure')||can('approveExpenditures')){
     const {data:expData} = await sb.from('expenditures').select('*').eq('academic_year_id', ayId).order('date', {ascending:false});
@@ -695,7 +714,7 @@ function renderAuth(){
   const root = document.getElementById('root');
   root.innerHTML = `
     <div class="auth-wrap"><div class="auth-card">
-      <div class="auth-brand"><span class="star">★</span><h1>${esc(STATE.schoolInfo.name)||'School Fee Ledger'}</h1></div>
+      <div class="auth-brand">${STATE.schoolInfo.logoUrl? `<img src="${esc(STATE.schoolInfo.logoUrl)}" class="logo" alt="logo">` : `<span class="star">★</span>`}<h1>${esc(STATE.schoolInfo.name)||'School Fee Ledger'}</h1></div>
       <p class="sub">Sign in to continue, or create an account.</p>
       <div class="auth-tabs">
         <button class="auth-tab ${STATE.authMode==='login'?'active':''}" data-mode="login">Sign In</button>
@@ -749,7 +768,9 @@ function render(){
 
   const pendingCount = STATE.log.filter(l=>l.status==='pending').length;
   const pendingExpCount = STATE.expenditures.filter(x=>x.status==='pending').length;
-  const navItems = [
+  const navItems = STATE.currentUser.role==='teacher' ? [
+    ['mygrades','◈','My Grades', null],
+  ] : [
     ['dashboard','◆','Dashboard', null],
     can('editFees') ? ['fees','₤','Fee Structure', null] : null,
     ['students','☰','Students', null],
@@ -757,6 +778,7 @@ function render(){
     ['log','✎','Payment Log', null],
     (can('submitExpenditure')||can('approveExpenditures')) ? ['expenditures','⛁','Expenditures', pendingExpCount||null] : null,
     can('manageGrades') ? ['grades','◈','Grades', null] : null,
+    (can('enterGrades') && !can('manageGrades')) ? ['mygrades','◈','My Grades', null] : null,
     can('manageTeachers') ? ['teachers','🎓','Teachers', null] : null,
     can('manageUsers') ? ['users','◍','Users', null] : null,
   ].filter(Boolean);
@@ -764,7 +786,7 @@ function render(){
   app.innerHTML = `
     <div class="side">
       <div class="brand">
-        <div class="brand-star">★</div>
+        ${STATE.schoolInfo.logoUrl ? `<img src="${esc(STATE.schoolInfo.logoUrl)}" class="brand-logo" alt="logo">` : `<div class="brand-star">★</div>`}
         <div class="brand-text"><h1>${esc(STATE.schoolInfo.name) || 'Your School Name'}</h1><span>Fee Ledger · LRD</span></div>
       </div>
       <nav>
@@ -785,6 +807,7 @@ function render(){
         <button data-action="settings">School Info</button>
         ${STATE.currentUser.role==='admin'? `<button data-action="academicyear">Academic Year</button>`:''}
         ${STATE.currentUser.role==='admin'? `<button data-action="curriculum">Curriculum</button>`:''}
+        ${STATE.currentUser.role==='admin'? `<button data-action="gradeperiods">Grading Periods</button>`:''}
         <button data-action="logout">Log Out</button>
       </div>
     </div>
@@ -794,6 +817,7 @@ function render(){
   app.querySelector('[data-action="settings"]').onclick = openSchoolInfoModal;
   const ayBtn = app.querySelector('[data-action="academicyear"]'); if(ayBtn) ayBtn.onclick = openAcademicYearModal;
   const curBtn = app.querySelector('[data-action="curriculum"]'); if(curBtn) curBtn.onclick = openCurriculumModal;
+  const gpBtn = app.querySelector('[data-action="gradeperiods"]'); if(gpBtn) gpBtn.onclick = openGradePeriodsModal;
   app.querySelector('[data-action="logout"]').onclick = logout;
 
   const main = document.getElementById('mainArea');
@@ -804,6 +828,7 @@ function render(){
   else if(STATE.view==='log') renderLog(main);
   else if(STATE.view==='expenditures' && (can('submitExpenditure')||can('approveExpenditures'))) renderExpenditures(main);
   else if(STATE.view==='grades' && can('manageGrades')) renderGrades(main);
+  else if(STATE.view==='mygrades' && can('enterGrades')) renderMyGrades(main);
   else if(STATE.view==='teachers' && can('manageTeachers')) renderTeachers(main);
   else if(STATE.view==='users' && can('manageUsers')) renderUsers(main);
   else { STATE.view='dashboard'; renderDashboard(main); }
@@ -1293,19 +1318,27 @@ function renderUsers(main){
     <div class="topline"><div><h2>Users</h2><p>Control who can access this ledger and what they're allowed to do.</p></div></div>
     <div class="auth-note" style="margin-bottom:16px;">New people create their own account from the Sign In screen (they start as Viewer). Promote them here. Removing an account or resetting someone else's password has to be done from the Supabase dashboard (Authentication → Users), since this app doesn't hold that kind of access.</div>
     <div class="panel" style="padding:0;overflow-x:auto;">
-      <table><thead><tr><th>Name</th><th>Role</th><th>Joined</th><th></th></tr></thead>
+      <table><thead><tr><th>Name</th><th>Role</th><th>Linked Teacher</th><th>Joined</th><th></th></tr></thead>
         <tbody>${STATE.users.map(u=>`
           <tr>
             <td>${esc(u.fullName)} ${u.id===STATE.currentUser.id? '<span class="muted" style="font-size:11px;">(you)</span>':''}</td>
             <td><span class="badge role">${esc(ROLES[u.role].label)}</span></td>
+            <td>${u.role==='teacher' ? (STATE.teachers.find(t=>t.id===u.teacherId)? esc(STATE.teachers.find(t=>t.id===u.teacherId).name) : `<span class="muted">Not linked yet</span>`) : `<span class="muted">—</span>`}</td>
             <td class="muted mono" style="font-size:11px;">${u.createdAt? fmtDT(u.createdAt):'—'}</td>
             <td>
               ${u.id!==STATE.currentUser.id ? `
               <select data-role="${u.id}" style="font-size:12px;padding:5px 8px;">
                 <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
                 <option value="bursar" ${u.role==='bursar'?'selected':''}>Bursar / Cashier</option>
+                <option value="teacher" ${u.role==='teacher'?'selected':''}>Teacher</option>
                 <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
-              </select>` : `<span class="muted" style="font-size:11.5px;">sign in as someone else to change this</span>`}
+              </select>
+              ${u.role==='teacher' ? `
+              <select data-teacherlink="${u.id}" style="font-size:12px;padding:5px 8px;margin-top:4px;">
+                <option value="">— link to teacher record —</option>
+                ${STATE.teachers.map(t=>`<option value="${t.id}" ${u.teacherId===t.id?'selected':''}>${esc(t.name)}</option>`).join('')}
+              </select>` : ''}
+              ` : `<span class="muted" style="font-size:11.5px;">sign in as someone else to change this</span>`}
             </td>
           </tr>`).join('')}</tbody></table>
     </div>
@@ -1313,6 +1346,7 @@ function renderUsers(main){
       <h3>Roles</h3>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;"><strong>Admin</strong> — manages fee structure, users, and approves or rejects every payment before it posts.</p>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;"><strong>Bursar / Cashier</strong> — adds students and submits payments, which then wait for Admin approval.</p>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;"><strong>Teacher</strong> — can only log in to enter periodic grades for the classes they're assigned to, and only while the Admin has that grading period open.</p>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0;"><strong>Viewer</strong> — read-only access to the dashboard, students, and payment log.</p>
     </div>
   `;
@@ -1322,7 +1356,16 @@ function renderUsers(main){
       const {error} = await sb.from('profiles').update({role}).eq('id', userId);
       if(error){ toast('Error: '+error.message); return; }
       const u = STATE.users.find(x=>x.id===userId); if(u) u.role=role;
-      render(); toast('Role updated');
+      render(); toast('Role updated'+(role==='teacher'? ' — now link them to a teacher record below':''));
+    };
+  });
+  main.querySelectorAll('[data-teacherlink]').forEach(sel=>{
+    sel.onchange = async ()=>{
+      const userId = sel.dataset.teacherlink, teacherId = sel.value || null;
+      const {error} = await sb.from('profiles').update({teacher_id:teacherId}).eq('id', userId);
+      if(error){ toast('Error: '+error.message); return; }
+      const u = STATE.users.find(x=>x.id===userId); if(u) u.teacherId=teacherId;
+      render(); toast('Linked teacher updated');
     };
   });
 }
@@ -1333,6 +1376,14 @@ function openSchoolInfoModal(){
   openModal(`
     <button class="close-x" data-close>×</button>
     <h3>School Information</h3><p class="mhint">Shown across the ledger and on the dashboard.</p>
+    <div class="field2" style="align-items:flex-end;margin-bottom:12px;">
+      <div class="field" style="flex:0 0 84px;"><label>School Logo</label>
+        <div id="siLogoPreview" style="width:76px;height:76px;border-radius:10px;overflow:hidden;background:var(--paper-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--ink-soft);">
+          ${s.logoUrl? `<img src="${esc(s.logoUrl)}" style="width:100%;height:100%;object-fit:contain;">` : '🏫'}
+        </div>
+      </div>
+      ${editable? `<div class="field"><label>Upload / Replace Logo</label><input type="file" id="siLogoFile" accept="image/*"><span class="muted" style="font-size:11px;">Appears at the top of the sidebar, report cards, and receipts.</span></div>`:''}
+    </div>
     <div class="school-info-grid">
       <div class="field"><label>School Name</label><input type="text" id="siName" value="${esc(s.name)}" ${editable?'':'disabled'}></div>
       <div class="field"><label>Address</label><input type="text" id="siAddress" value="${esc(s.address||'')}" ${editable?'':'disabled'}></div>
@@ -1347,15 +1398,25 @@ function openSchoolInfoModal(){
   modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
   const saveBtn = modalRoot.querySelector('#siSave');
   if(saveBtn) saveBtn.onclick = async ()=>{
-    STATE.schoolInfo = {
-      name: modalRoot.querySelector('#siName').value.trim(), address: modalRoot.querySelector('#siAddress').value.trim(),
-      county: modalRoot.querySelector('#siCounty').value.trim(),
-      year: modalRoot.querySelector('#siYear').value.trim(), principal: modalRoot.querySelector('#siPrincipal').value.trim(),
-      bursar: modalRoot.querySelector('#siBursar').value.trim(), activated: modalRoot.querySelector('#siActivated').value,
-    };
-    const {error} = await sb.from('school_config').update({school_info:STATE.schoolInfo}).eq('school_id', STATE.currentUser.schoolId);
-    if(error){ toast('Error: '+error.message); return; }
-    closeModal(); render(); toast('School information saved');
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    try{
+      let logoUrl = s.logoUrl || '';
+      const logoFile = modalRoot.querySelector('#siLogoFile') ? modalRoot.querySelector('#siLogoFile').files[0] : null;
+      if(logoFile){
+        const ext = logoFile.name.split('.').pop();
+        logoUrl = await uploadFile('documents', `logo/${STATE.currentUser.schoolId}_${Date.now()}.${ext}`, logoFile);
+      }
+      STATE.schoolInfo = {
+        name: modalRoot.querySelector('#siName').value.trim(), address: modalRoot.querySelector('#siAddress').value.trim(),
+        county: modalRoot.querySelector('#siCounty').value.trim(),
+        year: modalRoot.querySelector('#siYear').value.trim(), principal: modalRoot.querySelector('#siPrincipal').value.trim(),
+        bursar: modalRoot.querySelector('#siBursar').value.trim(), activated: modalRoot.querySelector('#siActivated').value,
+        logoUrl,
+      };
+      const {error} = await sb.from('school_config').update({school_info:STATE.schoolInfo}).eq('school_id', STATE.currentUser.schoolId);
+      if(error){ toast('Error: '+error.message); saveBtn.disabled=false; saveBtn.textContent='Save'; return; }
+      closeModal(); render(); toast('School information saved');
+    }catch(err){ toast('Error: '+(err.message||err)); saveBtn.disabled=false; saveBtn.textContent='Save'; }
   };
 }
 
@@ -1422,6 +1483,40 @@ function openCurriculumModal(){
     });
     if(updates.length) await Promise.all(updates);
     closeModal(); render(); toast('Curriculum updated — assigned teachers now reflect the new subject lists');
+  };
+}
+
+function openGradePeriodsModal(){
+  if(STATE.currentUser.role!=='admin') return;
+  const periods = STATE.gradePeriods || {};
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>Grading Periods</h3>
+    <p class="mhint">Open one period at a time for grade entry — for academic year ${esc(STATE.currentAcademicYearLabel||'')}. Teachers can only enter or change scores for a period while it's open here. Once you close a period, teachers are locked out of it completely — even scores they already entered — until you reopen it (for example, to settle a dispute).</p>
+    <div style="display:flex;flex-direction:column;gap:8px;margin-top:10px;">
+      ${GRADE_PERIOD_KEYS.map(([k,lbl])=>`
+        <label style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--paper-2);border-radius:8px;border:1px solid var(--line);font-size:13px;font-weight:600;">
+          <span>${lbl}</span>
+          <span style="display:flex;align-items:center;gap:8px;">
+            <span class="muted" style="font-weight:400;font-size:11.5px;">${periods[k]? 'Open — teachers can enter scores':'Locked'}</span>
+            <input type="checkbox" class="gpBox" data-period="${k}" ${periods[k]?'checked':''}>
+          </span>
+        </label>`).join('')}
+    </div>
+    <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="gpSave">Save</button></div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelectorAll('.gpBox').forEach(cb=>{
+    cb.onchange = ()=>{ const lbl = cb.closest('label').querySelector('.muted'); lbl.textContent = cb.checked? 'Open — teachers can enter scores' : 'Locked'; };
+  });
+  modalRoot.querySelector('#gpSave').onclick = async ()=>{
+    const btn = modalRoot.querySelector('#gpSave'); btn.disabled=true; btn.textContent='Saving…';
+    const updated = {};
+    GRADE_PERIOD_KEYS.forEach(([k])=>{ updated[k] = modalRoot.querySelector(`.gpBox[data-period="${k}"]`).checked; });
+    const {error} = await sb.from('academic_years').update({grade_periods:updated}).eq('id', STATE.currentAcademicYearId);
+    if(error){ toast('Error saving: '+error.message); btn.disabled=false; btn.textContent='Save'; return; }
+    STATE.gradePeriods = updated;
+    closeModal(); render(); toast('Grading periods updated');
   };
 }
 
@@ -1753,6 +1848,94 @@ function openPaymentModal(studentId){
 function slugify(s){ return String(s).trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'') || 'subject'; }
 const BLANK_GRADE_ROW = (studentId)=>({id:null, studentId, subject:'', p1:'', p2:'', p3:'', examS1:'', p4:'', p5:'', p6:'', examS2:'', remarks:''});
 
+function renderMyGrades(main){
+  const ayId = STATE.currentAcademicYearId;
+  const myAssignments = [];
+  STATE.classTeachers.forEach(ct=>{
+    (ct.subjects||[]).forEach(sub=> myAssignments.push({classCode: ct.class_code, subject: sub}));
+  });
+  if(myAssignments.length===0){
+    main.innerHTML = `
+      <div class="topline"><div><h2>My Grades</h2><p>Enter periodic scores for your assigned classes.</p></div></div>
+      <div class="panel"><p class="muted">You're not set up to enter grades yet. Ask your Admin to assign you to a class in Teachers, and to set that class's subjects in Curriculum Settings.</p></div>`;
+    return;
+  }
+  const comboKey = (a)=> `${a.classCode}::${a.subject}`;
+  const current = (STATE.myGradesCombo && myAssignments.some(a=>comboKey(a)===STATE.myGradesCombo)) ? STATE.myGradesCombo : comboKey(myAssignments[0]);
+  STATE.myGradesCombo = current;
+  const [curClass, curSubject] = current.split('::');
+  const students = STATE.students.filter(s=>s.classCode===curClass && s.status!=='Inactive').sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  const periods = STATE.gradePeriods || {};
+  const rowsByStudent = {};
+  STATE.grades.filter(g=>g.subject===curSubject).forEach(g=> rowsByStudent[g.studentId]=g);
+  const anyOpen = GRADE_PERIOD_KEYS.some(([k])=>periods[k]);
+
+  main.innerHTML = `
+    <div class="topline"><div><h2>My Grades</h2><p>Enter periodic scores for your assigned classes. 🔒 means that period is locked — ask your Admin to open it.</p></div></div>
+    <div class="panel" style="margin-bottom:14px;">
+      <div class="field" style="max-width:360px;"><label>Class — Subject</label>
+        <select id="mgCombo">${myAssignments.map(a=>`<option value="${comboKey(a)}" ${comboKey(a)===current?'selected':''}>${esc(CLASS_LABEL[a.classCode]||a.classCode)} — ${esc(a.subject)}</option>`).join('')}</select>
+      </div>
+      ${!anyOpen? `<p class="muted" style="font-size:12px;margin:8px 0 0;">No grading period is open right now — you can view existing scores but can't change them.</p>`:''}
+    </div>
+    <div class="panel" style="padding:0;overflow-x:auto;">
+      <table><thead><tr>
+        <th style="text-align:left;">Student</th>
+        ${GRADE_PERIOD_KEYS.map(([k,lbl])=>`<th class="tcenter">${lbl}${periods[k]?'':' 🔒'}</th>`).join('')}
+      </tr></thead>
+      <tbody>
+        ${students.length? students.map(s=>{
+          const g = rowsByStudent[s.id] || {};
+          return `<tr data-student="${s.id}">
+            <td>${esc(s.name)}</td>
+            ${GRADE_PERIOD_KEYS.map(([k])=>{
+              const jsKey = Object.keys(GRADE_JS_TO_DB).find(jk=>GRADE_JS_TO_DB[jk]===k);
+              const val = g[jsKey];
+              const open = !!periods[k];
+              return `<td class="tcenter">${open? `<input type="number" min="0" max="100" class="mgCell" data-student="${s.id}" data-k="${jsKey}" value="${val??''}" style="width:56px;">` : `<span class="muted">${val??'—'}</span>`}</td>`;
+            }).join('')}
+          </tr>`;
+        }).join('') : `<tr><td colspan="9" class="tcenter muted">No students found in this class</td></tr>`}
+      </tbody></table>
+    </div>
+    ${students.length && anyOpen? `<div class="modal-actions" style="justify-content:flex-start;margin-top:14px;"><button class="btn" id="mgSave">Save Grades</button></div>`:''}
+  `;
+  main.querySelector('#mgCombo').onchange = e=>{ STATE.myGradesCombo = e.target.value; render(); };
+  const saveBtn = main.querySelector('#mgSave');
+  if(saveBtn) saveBtn.onclick = async ()=>{
+    saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+    const byStudent = {};
+    main.querySelectorAll('.mgCell').forEach(inp=>{
+      const sid = inp.dataset.student;
+      byStudent[sid] = byStudent[sid] || {};
+      byStudent[sid][inp.dataset.k] = inp.value;
+    });
+    let anyError = false;
+    for(const sid of Object.keys(byStudent)){
+      const existing = rowsByStudent[sid] || {};
+      const changes = byStudent[sid];
+      const g = {
+        id: sid+'::'+ayId+'::'+slugify(curSubject), studentId: sid, subject: curSubject,
+        p1: changes.p1!==undefined?changes.p1:existing.p1, p2: changes.p2!==undefined?changes.p2:existing.p2,
+        p3: changes.p3!==undefined?changes.p3:existing.p3, examS1: changes.examS1!==undefined?changes.examS1:existing.examS1,
+        p4: changes.p4!==undefined?changes.p4:existing.p4, p5: changes.p5!==undefined?changes.p5:existing.p5,
+        p6: changes.p6!==undefined?changes.p6:existing.p6, examS2: changes.examS2!==undefined?changes.examS2:existing.examS2,
+        remarks: existing.remarks || null,
+        updatedBy: STATE.currentUser.id, updatedByName: STATE.currentUser.fullName, updatedAt: new Date().toISOString(),
+      };
+      const {error} = await sb.from('grades').upsert(gradeToRow(g));
+      if(error){ toast('Error saving '+((STATE.students.find(x=>x.id===sid)||{}).name||sid)+': '+error.message); anyError = true; }
+    }
+    const myClasses = [...new Set(STATE.classTeachers.map(r=>r.class_code))];
+    const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId);
+    const myStudentIds = new Set(STATE.students.filter(s2=>myClasses.includes(s2.classCode)).map(s2=>s2.id));
+    STATE.grades = (gradesData||[]).filter(g2=>myStudentIds.has(g2.student_id)).map(gradeFromRow);
+    if(!anyError) toast('Grades saved');
+    saveBtn.disabled = false; saveBtn.textContent = 'Save Grades';
+    render();
+  };
+}
+
 function renderGrades(main){
   const tab = STATE.gradesTab || 'report';
   main.innerHTML = `
@@ -1818,6 +2001,7 @@ function openGradeSheet(studentId){
   printSheet(`
     <div class="ps-page">
       <div class="ps-head">
+        ${si.logoUrl? `<img src="${esc(si.logoUrl)}" style="width:52px;height:52px;object-fit:contain;margin:0 auto 6px;display:block;">` : ''}
         <h1>${esc(si.name)||'School Name'}</h1>
         <div>${esc(si.address)||''}${si.address&&si.county?' · ':''}${esc(si.county)||''}</div>
         <div>Academic Year ${esc(si.year)}</div>
@@ -1881,10 +2065,13 @@ function openPaymentReceipt(logId){
   printSheet(`
     <div class="ps-page ps-receipt">
       <div class="ps-receipt-top">
-        <div>
-          <h1 style="font-size:17px;margin:0 0 2px;">${esc(si.name)||'School Name'}</h1>
-          <div style="font-size:11.5px;color:#444;">${esc(si.address)||''}${si.address&&si.county?' · ':''}${esc(si.county)||''}</div>
-          <div style="font-size:11.5px;color:#444;">Academic Year ${esc(si.year)}</div>
+        <div style="display:flex;align-items:flex-start;gap:8px;">
+          ${si.logoUrl? `<img src="${esc(si.logoUrl)}" style="width:38px;height:38px;object-fit:contain;flex-shrink:0;">` : ''}
+          <div>
+            <h1 style="font-size:17px;margin:0 0 2px;">${esc(si.name)||'School Name'}</h1>
+            <div style="font-size:11.5px;color:#444;">${esc(si.address)||''}${si.address&&si.county?' · ':''}${esc(si.county)||''}</div>
+            <div style="font-size:11.5px;color:#444;">Academic Year ${esc(si.year)}</div>
+          </div>
         </div>
         <div class="ps-receipt-no">
           Receipt No.
