@@ -275,9 +275,10 @@ const RANK_PERIODS = [['p1','Period 1'],['p2','Period 2'],['p3','Period 3'],['ex
 
 const ROLES = {
   admin:  {label:'Admin',            can:{manageUsers:true,  editFees:true,  manageStudents:true, submitPayment:true, approvePayments:true, deletePayments:true, manageGrades:true, manageTeachers:true, submitExpenditure:true, approveExpenditures:true, deleteExpenditures:true, manageExpenditureCategories:true, enterGrades:true, manageGradePeriods:true}},
-  bursar: {label:'Bursar / Cashier', can:{manageUsers:false, editFees:false, manageStudents:true, submitPayment:true, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:true, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:false, manageGradePeriods:false}},
+  bursar: {label:'Bursar / Cashier', can:{manageUsers:false, editFees:false, manageStudents:true, submitPayment:true, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:true, submitExpenditure:true, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:false, manageGradePeriods:false}},
   viewer: {label:'Viewer',            can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:false, manageGradePeriods:false}},
   teacher:{label:'Teacher',          can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:true, manageGradePeriods:false}},
+  general_entry:{label:'General Entry (All Grades)', can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:true, manageGradePeriods:false}},
 };
 function can(perm){ return !!(STATE.currentUser && ROLES[STATE.currentUser.role] && ROLES[STATE.currentUser.role].can[perm]); }
 
@@ -510,7 +511,7 @@ async function loadProfileAndData(user){
   const {data:profile, error} = await sb.from('profiles').select('*').eq('id',user.id).single();
   if(error || !profile){ STATE.authError='Could not load your profile. Please try signing in again.'; await sb.auth.signOut(); STATE.loaded=true; render(); return; }
   STATE.currentUser = {id:user.id, email:user.email, fullName:profile.full_name||user.email, role:profile.role, schoolId:profile.school_id||'school_1', teacherId:profile.teacher_id||null};
-  if(profile.role==='teacher') STATE.view = 'mygrades';
+  if(profile.role==='teacher' || profile.role==='general_entry') STATE.view = 'mygrades';
   await loadAllData();
   STATE.loaded = true;
   render();
@@ -580,6 +581,10 @@ async function loadAllData(){
     } else {
       STATE.grades = [];
     }
+  }
+  if(STATE.currentUser.role==='general_entry'){
+    const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId);
+    STATE.grades = (gradesData||[]).map(gradeFromRow);
   }
   if(can('submitExpenditure')||can('approveExpenditures')){
     const {data:expData} = await sb.from('expenditures').select('*').eq('academic_year_id', ayId).order('date', {ascending:false});
@@ -768,7 +773,7 @@ function render(){
 
   const pendingCount = STATE.log.filter(l=>l.status==='pending').length;
   const pendingExpCount = STATE.expenditures.filter(x=>x.status==='pending').length;
-  const navItems = STATE.currentUser.role==='teacher' ? [
+  const navItems = (STATE.currentUser.role==='teacher' || STATE.currentUser.role==='general_entry') ? [
     ['mygrades','◈','My Grades', null],
   ] : [
     ['dashboard','◆','Dashboard', null],
@@ -1331,6 +1336,7 @@ function renderUsers(main){
                 <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
                 <option value="bursar" ${u.role==='bursar'?'selected':''}>Bursar / Cashier</option>
                 <option value="teacher" ${u.role==='teacher'?'selected':''}>Teacher</option>
+                <option value="general_entry" ${u.role==='general_entry'?'selected':''}>General Entry (All Grades)</option>
                 <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
               </select>
               ${u.role==='teacher' ? `
@@ -1347,6 +1353,7 @@ function renderUsers(main){
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;"><strong>Admin</strong> — manages fee structure, users, and approves or rejects every payment before it posts.</p>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;"><strong>Bursar / Cashier</strong> — adds students and submits payments, which then wait for Admin approval.</p>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;"><strong>Teacher</strong> — can only log in to enter periodic grades for the classes they're assigned to, and only while the Admin has that grading period open.</p>
+      <p style="font-size:12.5px;color:var(--ink-soft);margin:0 0 8px;"><strong>General Entry (All Grades)</strong> — a shared login that can enter grades for every class and subject in the school, for teachers without their own device or internet. Still restricted to open grading periods only.</p>
       <p style="font-size:12.5px;color:var(--ink-soft);margin:0;"><strong>Viewer</strong> — read-only access to the dashboard, students, and payment log.</p>
     </div>
   `;
@@ -1453,7 +1460,7 @@ function openCurriculumModal(){
   openModal(`
     <button class="close-x" data-close>×</button>
     <h3>Curriculum — Subjects per Class</h3>
-    <p class="mhint">Set which subjects belong to each class, once. Whenever a teacher is assigned to a class, these subjects come with it automatically — no need to re-pick them per teacher.</p>
+    <p class="mhint">Set which subjects belong to each class, once. In Teachers, you then pick which of these subjects each individual teacher is responsible for.</p>
     <div style="display:flex;flex-direction:column;gap:10px;max-height:430px;overflow-y:auto;padding:4px 2px;">
       ${CLASS_DEFS.map(c=>`
         <div class="curClassBlock" data-class="${c.code}" style="padding:10px;background:var(--paper-2);border-radius:8px;border:1px solid var(--line);">
@@ -1475,14 +1482,20 @@ function openCurriculumModal(){
     const {error} = await sb.from('school_config').update({class_subjects:updated}).eq('school_id', STATE.currentUser.schoolId);
     if(error){ toast('Error saving: '+error.message); btn.disabled=false; btn.textContent='Save Curriculum'; return; }
     STATE.classSubjects = updated;
-    // Keep every already-assigned teacher's subjects in sync with the updated curriculum.
+    // Prune any teacher's subject picks that no longer exist in the updated curriculum
+    // (but never re-add subjects a teacher wasn't given, since subjects are now picked per teacher).
     const ayId = STATE.currentAcademicYearId;
-    const updates = STATE.classTeachers.map(ct=>{
-      ct.subjects = updated[ct.class_code] || [];
-      return sb.from('class_teachers').update({subjects: ct.subjects}).eq('id', ct.id).eq('academic_year_id', ayId);
+    const updates = [];
+    STATE.classTeachers.forEach(ct=>{
+      const allowed = new Set(updated[ct.class_code] || []);
+      const pruned = (ct.subjects||[]).filter(sub=>allowed.has(sub));
+      if(pruned.length !== (ct.subjects||[]).length){
+        ct.subjects = pruned;
+        updates.push(sb.from('class_teachers').update({subjects: pruned}).eq('id', ct.id).eq('academic_year_id', ayId));
+      }
     });
     if(updates.length) await Promise.all(updates);
-    closeModal(); render(); toast('Curriculum updated — assigned teachers now reflect the new subject lists');
+    closeModal(); render(); toast('Curriculum updated');
   };
 }
 
@@ -1850,14 +1863,21 @@ const BLANK_GRADE_ROW = (studentId)=>({id:null, studentId, subject:'', p1:'', p2
 
 function renderMyGrades(main){
   const ayId = STATE.currentAcademicYearId;
+  const isGeneral = STATE.currentUser.role==='general_entry';
   const myAssignments = [];
-  STATE.classTeachers.forEach(ct=>{
-    (ct.subjects||[]).forEach(sub=> myAssignments.push({classCode: ct.class_code, subject: sub}));
-  });
+  if(isGeneral){
+    CLASS_DEFS.forEach(c=>{
+      (STATE.classSubjects[c.code]||[]).forEach(sub=> myAssignments.push({classCode:c.code, subject:sub}));
+    });
+  } else {
+    STATE.classTeachers.forEach(ct=>{
+      (ct.subjects||[]).forEach(sub=> myAssignments.push({classCode: ct.class_code, subject: sub}));
+    });
+  }
   if(myAssignments.length===0){
     main.innerHTML = `
       <div class="topline"><div><h2>My Grades</h2><p>Enter periodic scores for your assigned classes.</p></div></div>
-      <div class="panel"><p class="muted">You're not set up to enter grades yet. Ask your Admin to assign you to a class in Teachers, and to set that class's subjects in Curriculum Settings.</p></div>`;
+      <div class="panel"><p class="muted">${isGeneral? 'No classes have subjects set up yet — ask your Admin to set them in Curriculum Settings.' : "You're not set up to enter grades yet. Ask your Admin to assign you to a class in Teachers, and to set that class's subjects in Curriculum Settings."}</p></div>`;
     return;
   }
   const comboKey = (a)=> `${a.classCode}::${a.subject}`;
@@ -1871,7 +1891,7 @@ function renderMyGrades(main){
   const anyOpen = GRADE_PERIOD_KEYS.some(([k])=>periods[k]);
 
   main.innerHTML = `
-    <div class="topline"><div><h2>My Grades</h2><p>Enter periodic scores for your assigned classes. 🔒 means that period is locked — ask your Admin to open it.</p></div></div>
+    <div class="topline"><div><h2>My Grades</h2><p>${isGeneral? 'Enter periodic scores for any class or subject in the school.' : 'Enter periodic scores for your assigned classes.'} 🔒 means that period is locked — ask your Admin to open it.</p></div></div>
     <div class="panel" style="margin-bottom:14px;">
       <div class="field" style="max-width:360px;"><label>Class — Subject</label>
         <select id="mgCombo">${myAssignments.map(a=>`<option value="${comboKey(a)}" ${comboKey(a)===current?'selected':''}>${esc(CLASS_LABEL[a.classCode]||a.classCode)} — ${esc(a.subject)}</option>`).join('')}</select>
@@ -1926,10 +1946,14 @@ function renderMyGrades(main){
       const {error} = await sb.from('grades').upsert(gradeToRow(g));
       if(error){ toast('Error saving '+((STATE.students.find(x=>x.id===sid)||{}).name||sid)+': '+error.message); anyError = true; }
     }
-    const myClasses = [...new Set(STATE.classTeachers.map(r=>r.class_code))];
     const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId);
-    const myStudentIds = new Set(STATE.students.filter(s2=>myClasses.includes(s2.classCode)).map(s2=>s2.id));
-    STATE.grades = (gradesData||[]).filter(g2=>myStudentIds.has(g2.student_id)).map(gradeFromRow);
+    if(isGeneral){
+      STATE.grades = (gradesData||[]).map(gradeFromRow);
+    } else {
+      const myClasses = [...new Set(STATE.classTeachers.map(r=>r.class_code))];
+      const myStudentIds = new Set(STATE.students.filter(s2=>myClasses.includes(s2.classCode)).map(s2=>s2.id));
+      STATE.grades = (gradesData||[]).filter(g2=>myStudentIds.has(g2.student_id)).map(gradeFromRow);
+    }
     if(!anyError) toast('Grades saved');
     saveBtn.disabled = false; saveBtn.textContent = 'Save Grades';
     render();
@@ -2110,12 +2134,13 @@ function openGradesModal(studentId){
   let rows = STATE.grades.filter(g=>g.studentId===studentId).map(g=>({...g}));
   if(rows.length===0) rows = [BLANK_GRADE_ROW(studentId)];
   const allCols = [...GRADE_COLS_S1, ...GRADE_COLS_S2];
+  const classSubs = STATE.classSubjects[s.classCode] || [];
 
   function draw(){
     openModal(`
       <button class="close-x" data-close>×</button>
       <h3>Report Card</h3>
-      <p class="mhint">${esc(s.name)||esc(s.id)} · ${esc(CLASS_LABEL[s.classCode])} — 3 periods + exam per semester</p>
+      <p class="mhint">${esc(s.name)||esc(s.id)} · ${esc(CLASS_LABEL[s.classCode])} — subjects come from Curriculum Settings for this class</p>
       <div style="overflow-x:auto;">
       <table id="gRows"><thead><tr>
         <th style="text-align:left;">Subject</th>
@@ -2130,7 +2155,11 @@ function openGradesModal(studentId){
       <tbody>
         ${rows.map((r,i)=>`
           <tr data-row="${i}">
-            <td><input type="text" class="gSubject wide-input" value="${esc(r.subject)}" placeholder="e.g. Mathematics"></td>
+            <td><select class="gSubject wide-input">
+              <option value="">— select subject —</option>
+              ${classSubs.map(sub=>`<option value="${esc(sub)}" ${r.subject===sub?'selected':''}>${esc(sub)}</option>`).join('')}
+              ${r.subject && !classSubs.includes(r.subject) ? `<option value="${esc(r.subject)}" selected>${esc(r.subject)} (not in curriculum)</option>` : ''}
+            </select></td>
             ${GRADE_COLS_S1.map(([k])=>`<td><input type="number" min="0" max="100" class="gCell" data-k="${k}" value="${r[k]??''}"></td>`).join('')}
             <td class="tright mono">${gradeAvg(r,'s1')!==null? gradeAvg(r,'s1').toFixed(1) : '—'}</td>
             ${GRADE_COLS_S2.map(([k])=>`<td><input type="number" min="0" max="100" class="gCell" data-k="${k}" value="${r[k]??''}"></td>`).join('')}
@@ -2160,7 +2189,14 @@ function openGradesModal(studentId){
     `, 'wide');
     modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
     modalRoot.querySelector('#gPrint').onclick = ()=> openGradeSheet(studentId);
-    modalRoot.querySelector('#gAddRow').onclick = ()=>{ syncRows(); rows.push(BLANK_GRADE_ROW(studentId)); draw(); };
+    modalRoot.querySelector('#gAddRow').onclick = ()=>{
+      syncRows();
+      const used = new Set(rows.map(r=>r.subject).filter(Boolean));
+      const next = classSubs.find(sub=>!used.has(sub));
+      if(!next){ toast(classSubs.length? 'All curriculum subjects for this class are already listed above.' : 'No subjects set for this class yet — add them in Curriculum Settings first.'); return; }
+      rows.push({...BLANK_GRADE_ROW(studentId), subject: next});
+      draw();
+    };
     modalRoot.querySelectorAll('[data-remove]').forEach(b=>{
       b.onclick = ()=>{ syncRows(); rows.splice(Number(b.dataset.remove),1); if(rows.length===0) rows=[BLANK_GRADE_ROW(studentId)]; draw(); };
     });
@@ -2327,6 +2363,8 @@ function openTeacherModal(teacherId){
   const editing = !!teacherId;
   const t = editing ? STATE.teachers.find(x=>x.id===teacherId) : null;
   const assignedNow = editing ? new Set(STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).map(ct=>ct.class_code)) : new Set();
+  const subjectsNow = {};
+  if(editing) STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).forEach(ct=>{ subjectsNow[ct.class_code] = ct.subjects||[]; });
   openModal(`
     <button class="close-x" data-close>×</button>
     <h3>${editing? 'Edit Teacher':'Add Teacher'}</h3>
@@ -2344,14 +2382,20 @@ function openTeacherModal(teacherId){
       <div class="field"><label>Email</label><input type="text" id="tEmail" value="${editing?esc(t.email||''):''}"></div>
     </div>
     <div class="field"><label>Subjects Teaching (free text summary, optional)</label><input type="text" id="tSubjects" value="${editing?esc(t.subjects||''):''}" placeholder="e.g. Mathematics, Physics"></div>
-    <div class="field"><label>Classes Assigned — subjects for each class come from the Curriculum, set by an Admin</label>
-      <div style="display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--paper-2);border-radius:8px;border:1px solid var(--line);max-height:320px;overflow-y:auto;">
+    <div class="field"><label>Classes Assigned — tick which of the class's curriculum subjects this teacher is responsible for</label>
+      <div style="display:flex;flex-direction:column;gap:10px;padding:10px;background:var(--paper-2);border-radius:8px;border:1px solid var(--line);max-height:340px;overflow-y:auto;">
         ${CLASS_DEFS.map(c=>{
           const subs = STATE.classSubjects[c.code]||[];
-          return `<label style="display:flex;flex-direction:column;gap:2px;font-size:12.5px;font-weight:600;padding:4px 0;border-bottom:1px solid var(--line);">
-            <span style="display:flex;align-items:center;gap:6px;"><input type="checkbox" class="tClassBox" value="${c.code}" ${assignedNow.has(c.code)?'checked':''}> ${esc(c.label)}</span>
-            <span class="muted" style="font-weight:400;font-size:11px;margin-left:22px;">${subs.length? esc(subs.join(', ')) : 'No subjects set for this class yet — add them in Curriculum Settings'}</span>
-          </label>`;
+          const picked = editing && subjectsNow[c.code] ? new Set(subjectsNow[c.code]) : null;
+          return `
+          <div class="tClassBlock">
+            <label style="display:flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600;">
+              <input type="checkbox" class="tClassBox" data-classbox="${c.code}" value="${c.code}" ${assignedNow.has(c.code)?'checked':''}> ${esc(c.label)}
+            </label>
+            <div class="tSubjectsFor" data-for="${c.code}" style="display:${assignedNow.has(c.code)?'grid':'none'};grid-template-columns:repeat(2,1fr);gap:4px;margin:6px 0 0 22px;">
+              ${subs.length? subs.map(sub=>`<label style="display:flex;align-items:center;gap:4px;font-size:11.5px;font-weight:400;"><input type="checkbox" class="tSubjectBox" data-class="${c.code}" value="${esc(sub)}" ${(picked? picked.has(sub) : true)?'checked':''}> ${esc(sub)}</label>`).join('') : `<span class="muted" style="font-size:11px;grid-column:1/-1;">No subjects set for this class yet — add them in Curriculum Settings</span>`}
+            </div>
+          </div>`;
         }).join('')}
       </div>
     </div>
@@ -2380,6 +2424,12 @@ function openTeacherModal(teacherId){
     <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="tSave">${editing?'Save Changes':'Add Teacher'}</button></div>
   `);
   modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelectorAll('.tClassBox').forEach(cb=>{
+    cb.onchange = ()=>{
+      const panel = modalRoot.querySelector(`.tSubjectsFor[data-for="${cb.dataset.classbox}"]`);
+      if(panel) panel.style.display = cb.checked ? 'grid' : 'none';
+    };
+  });
   let pendingTDocs = editing ? [...(t.documents||[])] : [];
   modalRoot.querySelectorAll('[data-tdoc-remove]').forEach(b=>{
     b.onclick = ()=>{ pendingTDocs.splice(Number(b.dataset.tdocRemove),1); b.closest('div').remove(); };
@@ -2403,7 +2453,9 @@ function openTeacherModal(teacherId){
       }
       const selectedClasses = [...modalRoot.querySelectorAll('.tClassBox:checked')].map(cb=>cb.value);
       const subjectsForClass = {};
-      selectedClasses.forEach(cc=>{ subjectsForClass[cc] = STATE.classSubjects[cc] || []; });
+      selectedClasses.forEach(cc=>{
+        subjectsForClass[cc] = [...modalRoot.querySelectorAll(`.tSubjectBox[data-class="${cc}"]:checked`)].map(cb=>cb.value);
+      });
       const payload = {
         id: teacherId2, name,
         contact: modalRoot.querySelector('#tContact').value.trim(),
