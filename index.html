@@ -1768,6 +1768,7 @@ function openStudentProfileModal(studentId){
     </div>
     <div class="modal-actions">
       <button class="btn ghost" id="stpGrade">Grade Sheet</button>
+      ${can('manageGrades')? `<button class="btn ghost" id="stpTranscript">Transcript</button>`:''}
       <button class="btn ghost" data-close>Close</button>
       ${can('manageStudents')? `<button class="btn" id="stpEdit">Edit Profile</button>`:''}
     </div>
@@ -1775,6 +1776,7 @@ function openStudentProfileModal(studentId){
   modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
   const editBtn = modalRoot.querySelector('#stpEdit'); if(editBtn) editBtn.onclick = ()=>openStudentModal(s.id);
   modalRoot.querySelector('#stpGrade').onclick = ()=>{ closeModal(); openGradeSheet(s.id); };
+  const transcriptBtn = modalRoot.querySelector('#stpTranscript'); if(transcriptBtn) transcriptBtn.onclick = ()=>{ closeModal(); openTranscriptModal(s.id); };
   modalRoot.querySelectorAll('[data-receipt]').forEach(a=> a.onclick=(e)=>{ e.preventDefault(); openPaymentReceipt(a.dataset.receipt); });
 }
 
@@ -1991,7 +1993,7 @@ function renderReportCards(main){
           const s2s = g.map(x=>gradeAvg(x,'s2')).filter(v=>v!==null);
           const a1 = s1s.length? (s1s.reduce((a,v)=>a+v,0)/s1s.length).toFixed(1) : '—';
           const a2 = s2s.length? (s2s.reduce((a,v)=>a+v,0)/s2s.length).toFixed(1) : '—';
-          return `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.name)||'<span class="muted">(unnamed)</span>'}</td><td class="tright">${g.length}</td><td class="tright mono">${a1}</td><td class="tright mono">${a2}</td><td style="white-space:nowrap;"><button class="btn ghost" data-grade="${s.id}">Edit</button> <button class="btn ghost" data-gradesheet="${s.id}">Print / Download</button></td></tr>`;
+          return `<tr><td class="mono">${esc(s.id)}</td><td>${esc(s.name)||'<span class="muted">(unnamed)</span>'}</td><td class="tright">${g.length}</td><td class="tright mono">${a1}</td><td class="tright mono">${a2}</td><td style="white-space:nowrap;"><button class="btn ghost" data-grade="${s.id}">Edit</button> <button class="btn ghost" data-gradesheet="${s.id}">Print / Download</button> <button class="btn ghost" data-transcript="${s.id}">Transcript</button></td></tr>`;
         }).join('')}</tbody></table>`}
     </div>
     <p class="muted" style="font-size:12px;">Only Admin accounts can view or edit grades — Bursars and Viewers have no access to this section.</p>
@@ -1999,6 +2001,7 @@ function renderReportCards(main){
   main.querySelector('#gClass').onchange = e=>{ STATE.gradesClass = e.target.value; render(); };
   main.querySelectorAll('[data-grade]').forEach(b=> b.onclick = ()=> openGradesModal(b.dataset.grade));
   main.querySelectorAll('[data-gradesheet]').forEach(b=> b.onclick = ()=> openGradeSheet(b.dataset.gradesheet));
+  main.querySelectorAll('[data-transcript]').forEach(b=> b.onclick = ()=> openTranscriptModal(b.dataset.transcript));
 }
 
 function printSheet(html){
@@ -2049,6 +2052,88 @@ function openGradeSheet(studentId){
       <div class="ps-meta">
         <div><b>Semester 1 Overall Average:</b> ${avgOf('s1')}</div>
         <div><b>Semester 2 Overall Average:</b> ${avgOf('s2')}</div>
+      </div>
+      <div class="ps-foot">
+        <div class="ps-sig">${esc(si.principal)||''}<br>Principal</div>
+        <div class="ps-sig">${esc(si.bursar)||''}<br>Registrar / Bursar</div>
+      </div>
+    </div>
+  `);
+}
+
+async function openTranscriptModal(studentId){
+  const s = STATE.students.find(x=>x.id===studentId);
+  if(!s) return;
+  toast('Generating transcript…');
+  const [yearsRes, gradesRes, enrollRes] = await Promise.all([
+    sb.from('academic_years').select('id,label,created_at').eq('school_id', STATE.currentUser.schoolId).order('created_at'),
+    sb.from('grades').select('*').eq('student_id', studentId),
+    sb.from('enrollments').select('academic_year_id,class_code').eq('student_id', studentId),
+  ]);
+  if(gradesRes.error){ toast('Error loading transcript: '+gradesRes.error.message); return; }
+  const years = yearsRes.data || [];
+  const allGrades = (gradesRes.data||[]).map(gradeFromRow);
+  const classByYear = {};
+  (enrollRes.data||[]).forEach(e=> classByYear[e.academic_year_id] = e.class_code);
+  const si = STATE.schoolInfo;
+  const avgOf = (rows, keyList)=>{
+    const vals = rows.map(g=>gradeAvg(g, keyList)).filter(v=>v!==null);
+    return vals.length? (vals.reduce((a,v)=>a+v,0)/vals.length) : null;
+  };
+  const yearsWithGrades = years.filter(y=> allGrades.some(g=>g.academicYearId===y.id));
+  if(yearsWithGrades.length===0){
+    toast('No grade records found for this student yet.');
+    return;
+  }
+  const yearBlocks = yearsWithGrades.map((y, idx)=>{
+    const rows = allGrades.filter(g=>g.academicYearId===y.id).sort((a,b)=>(a.subject||'').localeCompare(b.subject||''));
+    const classCode = classByYear[y.id];
+    const rowsHtml = rows.map(r=>`
+      <tr>
+        <td>${esc(r.subject)}</td>
+        ${GRADE_COLS_S1.map(([k])=>`<td class="tcenter">${r[k]??'—'}</td>`).join('')}
+        <td class="tcenter"><b>${gradeAvg(r,'s1')!==null?gradeAvg(r,'s1').toFixed(1):'—'}</b></td>
+        ${GRADE_COLS_S2.map(([k])=>`<td class="tcenter">${r[k]??'—'}</td>`).join('')}
+        <td class="tcenter"><b>${gradeAvg(r,'s2')!==null?gradeAvg(r,'s2').toFixed(1):'—'}</b></td>
+      </tr>`).join('');
+    const s1 = avgOf(rows,'s1'), s2 = avgOf(rows,'s2');
+    return `
+      <div style="${idx>0?'page-break-before:always;':''}margin-bottom:10px;">
+        <div class="ps-title" style="margin-bottom:8px;">${esc(y.label)}${classCode? ' — '+esc(CLASS_LABEL[classCode]||classCode) : ''}</div>
+        <table class="ps-table">
+          <thead>
+            <tr><th rowspan="2" style="text-align:left;">Subject</th><th colspan="4" class="tcenter">Semester 1</th><th rowspan="2">Avg</th><th colspan="4" class="tcenter">Semester 2</th><th rowspan="2">Avg</th></tr>
+            <tr>${GRADE_COLS_S1.map(([k,lbl])=>`<th>${lbl}</th>`).join('')}${GRADE_COLS_S2.map(([k,lbl])=>`<th>${lbl}</th>`).join('')}</tr>
+          </thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+        <div class="ps-meta">
+          <div><b>Semester 1 Average:</b> ${s1!==null?s1.toFixed(1):'—'}</div>
+          <div><b>Semester 2 Average:</b> ${s2!==null?s2.toFixed(1):'—'}</div>
+        </div>
+      </div>`;
+  }).join('');
+  const overallS1 = avgOf(allGrades,'s1'), overallS2 = avgOf(allGrades,'s2');
+  printSheet(`
+    <div class="ps-page">
+      <div class="ps-head">
+        ${si.logoUrl? `<img src="${esc(si.logoUrl)}" style="width:52px;height:52px;object-fit:contain;margin:0 auto 6px;display:block;">` : ''}
+        <h1>${esc(si.name)||'School Name'}</h1>
+        <div>${esc(si.address)||''}${si.address&&si.county?' · ':''}${esc(si.county)||''}</div>
+      </div>
+      <div class="ps-title">Official Academic Transcript</div>
+      <div class="ps-meta">
+        <div><b>Name:</b> ${esc(s.name)}</div>
+        <div><b>Student ID:</b> ${esc(s.id)}</div>
+        <div><b>Gender:</b> ${esc(s.gender)||'—'}</div>
+        <div><b>Date of Birth:</b> ${esc(s.dob)||'—'}</div>
+        <div><b>Parent/Guardian:</b> ${esc(s.parent)||'—'}</div>
+        <div><b>Current Class:</b> ${esc(CLASS_LABEL[s.classCode]||s.classCode)}</div>
+      </div>
+      ${yearBlocks}
+      <div class="ps-meta" style="margin-top:14px;border-top:1px solid #ccc;padding-top:10px;">
+        <div><b>Cumulative Semester 1 Average:</b> ${overallS1!==null?overallS1.toFixed(1):'—'}</div>
+        <div><b>Cumulative Semester 2 Average:</b> ${overallS2!==null?overallS2.toFixed(1):'—'}</div>
       </div>
       <div class="ps-foot">
         <div class="ps-sig">${esc(si.principal)||''}<br>Principal</div>
