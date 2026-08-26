@@ -279,6 +279,7 @@ const ROLES = {
   viewer: {label:'Viewer',            can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:false, manageGradePeriods:false}},
   teacher:{label:'Teacher',          can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:true, manageGradePeriods:false}},
   general_entry:{label:'General Entry (All Grades)', can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:true, manageGradePeriods:false}},
+  pending:{label:'Pending Approval', can:{manageUsers:false, editFees:false, manageStudents:false, submitPayment:false, approvePayments:false, deletePayments:false, manageGrades:false, manageTeachers:false, submitExpenditure:false, approveExpenditures:false, deleteExpenditures:false, manageExpenditureCategories:false, enterGrades:false, manageGradePeriods:false}},
 };
 function can(perm){ return !!(STATE.currentUser && ROLES[STATE.currentUser.role] && ROLES[STATE.currentUser.role].can[perm]); }
 
@@ -286,7 +287,7 @@ let STATE = {
   loaded:false,
   currentUser:null,
   authMode:'login',
-  authError:'', authOk:'',
+  authError:'', authOk:'', passwordRecovery:false,
   schoolInfo:{...DEFAULT_SCHOOL_INFO},
   fees: JSON.parse(JSON.stringify(DEFAULT_FEES)),
   students:[], log:[], users:[], grades:[],
@@ -504,7 +505,8 @@ async function initAuth(){
   if(session){ await loadProfileAndData(session.user); }
   else { STATE.loaded = true; render(); }
   sb.auth.onAuthStateChange(async (event, session)=>{
-    if(event==='SIGNED_OUT'){ STATE.currentUser=null; STATE.loaded=true; render(); }
+    if(event==='SIGNED_OUT'){ STATE.currentUser=null; STATE.loaded=true; STATE.passwordRecovery=false; render(); }
+    if(event==='PASSWORD_RECOVERY'){ STATE.passwordRecovery=true; STATE.loaded=true; render(); }
   });
 }
 async function loadProfileAndData(user){
@@ -555,7 +557,7 @@ async function loadAllData(){
     }
   });
   STATE.log = (logRes.data||[]).map(logFromRow);
-  STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, teacherId:r.teacher_id||null, createdAt:r.created_at}));
+  STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, teacherId:r.teacher_id||null, email:r.email||'', createdAt:r.created_at}));
   if(can('manageGrades')){
     const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId).order('subject');
     STATE.grades = (gradesData||[]).map(gradeFromRow);
@@ -728,7 +730,7 @@ function renderAuth(){
       ${STATE.authError? `<div class="auth-err">${esc(STATE.authError)}</div>`:''}
       ${STATE.authOk? `<div class="auth-ok">${esc(STATE.authOk)}</div>`:''}
       ${STATE.authMode==='signup' ? `
-        <div class="auth-note">New accounts start as <strong>Viewer</strong> (read-only). Ask an Admin to promote you to Bursar or Admin from the Users page once you've signed up.</div>
+        <div class="auth-note">New accounts start as <strong>Pending Approval</strong> — you'll be able to sign in, but won't see any school data until an Admin approves your account and assigns you a role.</div>
         <div class="field"><label>Full Name</label><input type="text" id="suName"></div>
         <div class="field"><label>Email</label><input type="email" id="suEmail"></div>
         <div class="field"><label>Password</label><input type="password" id="suPass" placeholder="At least 6 characters"></div>
@@ -737,6 +739,7 @@ function renderAuth(){
         <div class="field"><label>Email</label><input type="email" id="liEmail"></div>
         <div class="field"><label>Password</label><input type="password" id="liPass"></div>
         <button class="btn gold" style="width:100%;" id="liSubmit">Sign In</button>
+        <div style="text-align:center;margin-top:10px;"><a href="#" id="liForgot" style="font-size:12px;color:var(--ink-soft);text-decoration:underline;">Forgot password?</a></div>
       `}
     </div></div>`;
   root.querySelectorAll('[data-mode]').forEach(b=> b.onclick = ()=>{ STATE.authMode=b.dataset.mode; STATE.authError=''; STATE.authOk=''; renderAuth(); });
@@ -758,15 +761,61 @@ function renderAuth(){
     };
     document.getElementById('liSubmit').onclick = doIt;
     document.getElementById('liPass').addEventListener('keydown', e=>{ if(e.key==='Enter') doIt(); });
+    document.getElementById('liForgot').onclick = async (e)=>{
+      e.preventDefault();
+      const email = document.getElementById('liEmail').value.trim();
+      if(!email){ STATE.authError='Enter your email above first, then click "Forgot password?" again.'; renderAuth(); return; }
+      const {error} = await sb.auth.resetPasswordForEmail(email, {redirectTo: window.location.href.split('#')[0].split('?')[0]});
+      if(error){ STATE.authError = error.message; renderAuth(); return; }
+      STATE.authError=''; STATE.authOk='If an account exists for '+email+', a reset link has been sent.'; renderAuth();
+    };
   }
 }
 
 /* ============================= RENDER: SHELL ============================= */
+function renderPendingApproval(){
+  const root = document.getElementById('root');
+  const si = STATE.schoolInfo;
+  root.innerHTML = `
+    <div class="auth-wrap"><div class="auth-card" style="text-align:center;">
+      <div style="margin:0 auto 18px;width:72px;height:72px;border-radius:16px;overflow:hidden;background:var(--paper-2);border:1px solid var(--line);display:flex;align-items:center;justify-content:center;font-size:30px;color:var(--gold);">
+        ${si.logoUrl? `<img src="${esc(si.logoUrl)}" style="width:100%;height:100%;object-fit:contain;">` : '★'}
+      </div>
+      <h1 style="font-family:'Fraunces',serif;font-size:19px;margin:0 0 6px;">${esc(si.name)||'Welcome'}</h1>
+      <p class="sub" style="margin-bottom:22px;">Your account has been created and is waiting for an Admin to approve it and assign your role. Please check back soon.</p>
+      <button class="btn ghost" id="paLogout">Log Out</button>
+    </div></div>`;
+  document.getElementById('paLogout').onclick = logout;
+}
+function renderPasswordRecovery(){
+  const root = document.getElementById('root');
+  root.innerHTML = `
+    <div class="auth-wrap"><div class="auth-card">
+      <div class="auth-brand">${STATE.schoolInfo.logoUrl? `<img src="${esc(STATE.schoolInfo.logoUrl)}" class="logo" alt="logo">` : `<span class="star">★</span>`}<h1>Set a New Password</h1></div>
+      <p class="sub">Choose a new password for your account.</p>
+      ${STATE.authError? `<div class="auth-err">${esc(STATE.authError)}</div>`:''}
+      <div class="field"><label>New Password</label><input type="password" id="rcPass" placeholder="At least 6 characters"></div>
+      <div class="field"><label>Confirm New Password</label><input type="password" id="rcPass2"></div>
+      <button class="btn gold" style="width:100%;" id="rcSubmit">Save New Password</button>
+    </div></div>`;
+  document.getElementById('rcSubmit').onclick = async ()=>{
+    const p1 = document.getElementById('rcPass').value, p2 = document.getElementById('rcPass2').value;
+    if(!p1 || p1.length<6){ STATE.authError='Password must be at least 6 characters.'; renderPasswordRecovery(); return; }
+    if(p1!==p2){ STATE.authError='Passwords do not match.'; renderPasswordRecovery(); return; }
+    const {error} = await sb.auth.updateUser({password:p1});
+    if(error){ STATE.authError = error.message; renderPasswordRecovery(); return; }
+    STATE.passwordRecovery = false; STATE.authError=''; STATE.authOk='Password updated — please sign in.';
+    await sb.auth.signOut();
+    render();
+  };
+}
 function render(){
   const root = document.getElementById('root');
   if(!CONFIGURED){ renderSetupRequired(); return; }
   if(!STATE.loaded){ root.innerHTML = `<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;color:#5B5F6A;">Loading ledger…</div>`; return; }
+  if(STATE.passwordRecovery){ renderPasswordRecovery(); return; }
   if(!STATE.currentUser){ renderAuth(); return; }
+  if(STATE.currentUser.role==='pending'){ renderPendingApproval(); return; }
 
   root.innerHTML = `<div class="app" id="appRoot"></div>`;
   const app = document.getElementById('appRoot');
@@ -975,7 +1024,10 @@ function renderStudents(main){
   main.innerHTML = `
     <div class="topline">
       <div><h2>Students</h2><p>${STATE.students.length} student${STATE.students.length===1?'':'s'} across ${CLASS_DEFS.length} classes.</p></div>
-      ${can('manageStudents')? `<button class="btn" data-action="add-student">+ Add Student</button>`:''}
+      <div style="display:flex;gap:8px;">
+        <button class="btn ghost" data-action="class-roster">Class Roster / Attendance</button>
+        ${can('manageStudents')? `<button class="btn" data-action="add-student">+ Add Student</button>`:''}
+      </div>
     </div>
     <div class="toolbar">
       <select id="fClass"><option value="ALL">All classes</option>${CLASS_DEFS.map(c=>`<option value="${c.code}" ${f.classCode===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select>
@@ -1017,6 +1069,7 @@ function renderStudents(main){
     </div>
   `;
   const addBtn = main.querySelector('[data-action="add-student"]'); if(addBtn) addBtn.onclick = ()=>openStudentModal(null);
+  main.querySelector('[data-action="class-roster"]').onclick = openClassRosterModal;
   main.querySelector('#fClass').onchange = e=>{ STATE.studentsFilter.classCode = e.target.value; render(); };
   main.querySelector('#fStatus').onchange = e=>{ STATE.studentsFilter.status = e.target.value; render(); };
   main.querySelector('#fType').onchange = e=>{ STATE.studentsFilter.type = e.target.value; render(); };
@@ -1323,7 +1376,7 @@ function renderUsers(main){
     <div class="topline"><div><h2>Users</h2><p>Control who can access this ledger and what they're allowed to do.</p></div></div>
     <div class="auth-note" style="margin-bottom:16px;">New people create their own account from the Sign In screen (they start as Viewer). Promote them here. Removing an account or resetting someone else's password has to be done from the Supabase dashboard (Authentication → Users), since this app doesn't hold that kind of access.</div>
     <div class="panel" style="padding:0;overflow-x:auto;">
-      <table><thead><tr><th>Name</th><th>Role</th><th>Linked Teacher</th><th>Joined</th><th></th></tr></thead>
+      <table><thead><tr><th>Name</th><th>Role</th><th>Linked Teacher</th><th>Joined</th><th></th><th></th></tr></thead>
         <tbody>${STATE.users.map(u=>`
           <tr>
             <td>${esc(u.fullName)} ${u.id===STATE.currentUser.id? '<span class="muted" style="font-size:11px;">(you)</span>':''}</td>
@@ -1333,6 +1386,7 @@ function renderUsers(main){
             <td>
               ${u.id!==STATE.currentUser.id ? `
               <select data-role="${u.id}" style="font-size:12px;padding:5px 8px;">
+                <option value="pending" ${u.role==='pending'?'selected':''}>Pending Approval</option>
                 <option value="viewer" ${u.role==='viewer'?'selected':''}>Viewer</option>
                 <option value="bursar" ${u.role==='bursar'?'selected':''}>Bursar / Cashier</option>
                 <option value="teacher" ${u.role==='teacher'?'selected':''}>Teacher</option>
@@ -1346,6 +1400,7 @@ function renderUsers(main){
               </select>` : ''}
               ` : `<span class="muted" style="font-size:11.5px;">sign in as someone else to change this</span>`}
             </td>
+            <td>${u.email? `<button class="btn ghost" data-resetpw="${esc(u.email)}" style="font-size:11.5px;padding:6px 10px;">Reset Password</button>` : `<span class="muted" style="font-size:11px;">no email on file</span>`}</td>
           </tr>`).join('')}</tbody></table>
     </div>
     <div class="panel">
@@ -1373,6 +1428,16 @@ function renderUsers(main){
       if(error){ toast('Error: '+error.message); return; }
       const u = STATE.users.find(x=>x.id===userId); if(u) u.teacherId=teacherId;
       render(); toast('Linked teacher updated');
+    };
+  });
+  main.querySelectorAll('[data-resetpw]').forEach(btn=>{
+    btn.onclick = async ()=>{
+      const email = btn.dataset.resetpw;
+      btn.disabled = true; const orig = btn.textContent; btn.textContent = 'Sending…';
+      const {error} = await sb.auth.resetPasswordForEmail(email, {redirectTo: window.location.href.split('#')[0].split('?')[0]});
+      if(error){ toast('Error: '+error.message); btn.disabled=false; btn.textContent=orig; return; }
+      toast('Password reset email sent to '+email);
+      btn.disabled=false; btn.textContent=orig;
     };
   });
 }
@@ -2059,6 +2124,76 @@ function openGradeSheet(studentId){
       </div>
     </div>
   `);
+}
+
+function openClassRosterModal(){
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>Class Roster / Attendance Sheet</h3>
+    <p class="mhint">A simple printable list — just name, gender, and class. No fee or balance information.</p>
+    <div class="field"><label>Class</label>
+      <select id="crClass"><option value="ALL">All Classes (one per page)</option>${CLASS_DEFS.map(c=>`<option value="${c.code}">${esc(c.label)}</option>`).join('')}</select>
+    </div>
+    <div class="field"><label>Sheet Type</label>
+      <select id="crType">
+        <option value="roster">Simple Roster (Name, Gender, Class)</option>
+        <option value="attendance">Attendance Sheet (adds blank daily columns)</option>
+      </select>
+    </div>
+    <div class="field" id="crDaysField" style="display:none;"><label>Number of Days / Columns</label><input type="number" id="crDays" value="5" min="1" max="31"></div>
+    <div class="field"><label>Include Inactive Students?</label>
+      <select id="crInactive"><option value="no">No — active students only</option><option value="yes">Yes — include inactive</option></select>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="crGo">Generate</button></div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  const typeSel = modalRoot.querySelector('#crType');
+  typeSel.onchange = ()=>{ modalRoot.querySelector('#crDaysField').style.display = typeSel.value==='attendance' ? 'block' : 'none'; };
+  modalRoot.querySelector('#crGo').onclick = ()=>{
+    const classCode = modalRoot.querySelector('#crClass').value;
+    const type = typeSel.value;
+    const days = Math.max(1, Math.min(31, Number(modalRoot.querySelector('#crDays').value)||5));
+    const includeInactive = modalRoot.querySelector('#crInactive').value==='yes';
+    closeModal();
+    printClassRoster(classCode, type, days, includeInactive);
+  };
+}
+function printClassRoster(classCode, type, days, includeInactive){
+  const si = STATE.schoolInfo;
+  const classCodes = classCode==='ALL' ? CLASS_DEFS.map(c=>c.code) : [classCode];
+  const dayCols = Array.from({length: days}, (_,i)=> i+1);
+  const pageFor = (cc, isLast)=>{
+    const students = STATE.students
+      .filter(s=> s.classCode===cc && (includeInactive || s.status!=='Inactive'))
+      .sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+    const rowsHtml = students.length ? students.map((s,i)=>`
+      <tr>
+        <td class="tcenter">${i+1}</td>
+        <td>${esc(s.name)||'(unnamed)'}</td>
+        <td class="tcenter">${esc(s.gender)||'—'}</td>
+        ${type==='attendance' ? dayCols.map(()=>`<td style="min-width:26px;">&nbsp;</td>`).join('') : ''}
+      </tr>`).join('') : `<tr><td colspan="${type==='attendance'?3+days:3}" class="tcenter" style="color:#888;">No students in this class</td></tr>`;
+    return `
+      <div class="ps-page" style="${isLast?'':'page-break-after:always;'}">
+        <div class="ps-head">
+          ${si.logoUrl? `<img src="${esc(si.logoUrl)}" style="width:52px;height:52px;object-fit:contain;margin:0 auto 6px;display:block;">` : ''}
+          <h1>${esc(si.name)||'School Name'}</h1>
+          <div>${esc(si.address)||''}${si.address&&si.county?' · ':''}${esc(si.county)||''}</div>
+          <div>Academic Year ${esc(si.year)}</div>
+        </div>
+        <div class="ps-title">${type==='attendance'?'Attendance Sheet':'Class Roster'} — ${esc(CLASS_LABEL[cc]||cc)}</div>
+        ${type==='attendance'? `<p class="mhint" style="text-align:center;">Month/Period: ______________________</p>` : ''}
+        <table class="ps-table">
+          <thead><tr>
+            <th class="tcenter" style="width:32px;">#</th><th style="text-align:left;">Name</th><th class="tcenter">Gender</th>
+            ${type==='attendance' ? dayCols.map(d=>`<th class="tcenter">${d}</th>`).join('') : ''}
+          </tr></thead>
+          <tbody>${rowsHtml}</tbody>
+        </table>
+      </div>`;
+  };
+  const html = classCodes.map((cc,i)=>pageFor(cc, i===classCodes.length-1)).join('');
+  printSheet(html);
 }
 
 async function openTranscriptModal(studentId){
