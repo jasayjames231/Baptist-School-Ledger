@@ -214,6 +214,34 @@ const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBh
 const CONFIGURED = SUPABASE_URL.startsWith('https://') && SUPABASE_ANON_KEY.length > 20;
 const sb = CONFIGURED ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
+/* ---- Username logins (for teachers without email) ----
+   A username like "mary.kollie" is turned into a private login address behind the scenes.
+   Nobody can receive mail at this address; it is only a technical label. */
+const LOGIN_DOMAIN = 'school.example.com';
+function toLoginEmail(v){ v=(v||'').trim(); return v.includes('@') ? v : v.toLowerCase()+'@'+LOGIN_DOMAIN; }
+function usernameFromEmail(e){ e=(e||'').toLowerCase(); return e.endsWith('@'+LOGIN_DOMAIN) ? e.slice(0,-(LOGIN_DOMAIN.length+1)) : ''; }
+function suggestUsername(name){
+  const parts=(name||'').toLowerCase().replace(/[^a-z0-9\s]/g,'').split(/\s+/).filter(Boolean);
+  if(!parts.length) return '';
+  return parts.length>1 ? parts[0]+'.'+parts[parts.length-1] : parts[0];
+}
+function randomPassword(){
+  const chars='abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789';
+  const arr=new Uint32Array(8); crypto.getRandomValues(arr);
+  return Array.from(arr).map(n=>chars[n%chars.length]).join('');
+}
+async function callLoginAdmin(payload){
+  const {data, error} = await sb.functions.invoke('manage-teacher-login', {body: payload});
+  if(error){
+    let msg = error.message || 'Request failed';
+    try{ const j = await error.context.json(); if(j && j.error) msg = j.error; }catch(e){}
+    if(/not found|404/i.test(msg)) msg = 'The teacher-login service has not been set up in Supabase yet.';
+    throw new Error(msg);
+  }
+  if(data && data.error) throw new Error(data.error);
+  return data;
+}
+
 /* ============================= DATA MODEL ============================= */
 const CLASS_DEFS = [
   {code:'ABC', label:'ABC Class'}, {code:'K1', label:'K1 Class'}, {code:'K2', label:'K2 Class'},
@@ -521,18 +549,19 @@ async function initAuth(){
   if(session){ await loadProfileAndData(session.user); }
   else { STATE.loaded = true; render(); }
   sb.auth.onAuthStateChange(async (event, session)=>{
-    if(event==='SIGNED_OUT'){ STATE.currentUser=null; STATE.loaded=true; STATE.passwordRecovery=false; render(); }
+    if(event==='SIGNED_OUT'){ STATE.pwPrompted=false; STATE.currentUser=null; STATE.loaded=true; STATE.passwordRecovery=false; render(); }
     if(event==='PASSWORD_RECOVERY'){ STATE.passwordRecovery=true; STATE.loaded=true; render(); }
   });
 }
 async function loadProfileAndData(user){
   const {data:profile, error} = await sb.from('profiles').select('*').eq('id',user.id).single();
   if(error || !profile){ STATE.authError='Could not load your profile. Please try signing in again.'; await sb.auth.signOut(); STATE.loaded=true; render(); return; }
-  STATE.currentUser = {id:user.id, email:user.email, fullName:profile.full_name||user.email, role:profile.role, schoolId:profile.school_id||'school_1', teacherId:profile.teacher_id||null};
+  STATE.currentUser = {id:user.id, email:user.email, fullName:profile.full_name||user.email, role:profile.role, schoolId:profile.school_id||'school_1', teacherId:profile.teacher_id||null, username:usernameFromEmail(user.email), mustChangePassword:!!(user.user_metadata && user.user_metadata.must_change_password)};
   if(profile.role==='teacher' || profile.role==='general_entry') STATE.view = 'mygrades';
   await loadAllData();
   STATE.loaded = true;
   render();
+  if(STATE.currentUser.mustChangePassword && !STATE.pwPrompted){ STATE.pwPrompted = true; openChangePasswordModal(true); }
 }
 async function loadAllData(){
   const schoolId = STATE.currentUser.schoolId;
@@ -573,7 +602,7 @@ async function loadAllData(){
     }
   });
   STATE.log = (logRes.data||[]).map(logFromRow);
-  STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, teacherId:r.teacher_id||null, email:r.email||'', createdAt:r.created_at}));
+  STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, teacherId:r.teacher_id||null, email:r.email||'', username:usernameFromEmail(r.email), createdAt:r.created_at}));
   if(can('manageGrades')){
     const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId).order('subject');
     STATE.grades = (gradesData||[]).map(gradeFromRow);
@@ -683,7 +712,7 @@ function pendingAmountFor(studentId){
 function toast(msg){
   let el = document.getElementById('toastEl'); if(el) el.remove();
   el = document.createElement('div'); el.id='toastEl'; el.className='toast'; el.textContent=msg;
-  document.body.appendChild(el); setTimeout(()=>el.remove(), 2600);
+  document.body.appendChild(el); setTimeout(()=>el.remove(), Math.max(2600, msg.length*70));
 }
 function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 function badge(status){
@@ -752,7 +781,7 @@ function renderAuth(){
         <div class="field"><label>Password</label><input type="password" id="suPass" placeholder="At least 6 characters"></div>
         <button class="btn gold" style="width:100%;" id="suSubmit">Create Account</button>
       ` : `
-        <div class="field"><label>Email</label><input type="email" id="liEmail"></div>
+        <div class="field"><label>Email or Username</label><input type="text" id="liEmail" autocapitalize="none" autocomplete="username"></div>
         <div class="field"><label>Password</label><input type="password" id="liPass"></div>
         <button class="btn gold" style="width:100%;" id="liSubmit">Sign In</button>
         <div style="text-align:center;margin-top:10px;"><a href="#" id="liForgot" style="font-size:12px;color:var(--ink-soft);text-decoration:underline;">Forgot password?</a></div>
@@ -772,8 +801,8 @@ function renderAuth(){
     const doIt = ()=>{
       const email = document.getElementById('liEmail').value.trim();
       const pass = document.getElementById('liPass').value;
-      if(!email||!pass){ STATE.authError='Please enter your email and password.'; renderAuth(); return; }
-      doLogin(email, pass);
+      if(!email||!pass){ STATE.authError='Please enter your email or username and your password.'; renderAuth(); return; }
+      doLogin(toLoginEmail(email), pass);
     };
     document.getElementById('liSubmit').onclick = doIt;
     document.getElementById('liPass').addEventListener('keydown', e=>{ if(e.key==='Enter') doIt(); });
@@ -781,6 +810,7 @@ function renderAuth(){
       e.preventDefault();
       const email = document.getElementById('liEmail').value.trim();
       if(!email){ STATE.authError='Enter your email above first, then click "Forgot password?" again.'; renderAuth(); return; }
+      if(!email.includes('@')){ STATE.authError='Username accounts have no email. Please ask your school administrator to set a new password for you.'; renderAuth(); return; }
       const {error} = await sb.auth.resetPasswordForEmail(email, {redirectTo: window.location.href.split('#')[0].split('?')[0]});
       if(error){ STATE.authError = error.message; renderAuth(); return; }
       STATE.authError=''; STATE.authOk='If an account exists for '+email+', a reset link has been sent.'; renderAuth();
@@ -878,6 +908,7 @@ function render(){
         ${STATE.currentUser.role==='admin'? `<button data-action="academicyear">Academic Year</button>`:''}
         ${STATE.currentUser.role==='admin'? `<button data-action="curriculum">Curriculum</button>`:''}
         ${STATE.currentUser.role==='admin'? `<button data-action="gradeperiods">Grading Periods</button>`:''}
+        <button data-action="changepw">Change Password</button>
         <button data-action="logout">Log Out</button>
       </div>
     </div>
@@ -888,6 +919,7 @@ function render(){
   const ayBtn = app.querySelector('[data-action="academicyear"]'); if(ayBtn) ayBtn.onclick = openAcademicYearModal;
   const curBtn = app.querySelector('[data-action="curriculum"]'); if(curBtn) curBtn.onclick = openCurriculumModal;
   const gpBtn = app.querySelector('[data-action="gradeperiods"]'); if(gpBtn) gpBtn.onclick = openGradePeriodsModal;
+  app.querySelector('[data-action="changepw"]').onclick = ()=> openChangePasswordModal(false);
   app.querySelector('[data-action="logout"]').onclick = logout;
 
   const main = document.getElementById('mainArea');
@@ -1390,12 +1422,12 @@ function deletePostedExpenditure(id){
 function renderUsers(main){
   main.innerHTML = `
     <div class="topline"><div><h2>Users</h2><p>Control who can access this ledger and what they're allowed to do.</p></div></div>
-    <div class="auth-note" style="margin-bottom:16px;">New people create their own account from the Sign In screen (they start as Viewer). Promote them here. Removing an account or resetting someone else's password has to be done from the Supabase dashboard (Authentication → Users), since this app doesn't hold that kind of access.</div>
+    <div class="auth-note" style="margin-bottom:16px;">New people with an email can create their own account from the Sign In screen (they start as Viewer). Promote them here. Teachers with a username login are created from Teachers → Add Teacher, and you can set a new password for them here. Removing an account has to be done from the Supabase dashboard (Authentication → Users).</div>
     <div class="panel" style="padding:0;overflow-x:auto;">
       <table><thead><tr><th>Name</th><th>Role</th><th>Linked Teacher</th><th>Joined</th><th></th><th></th></tr></thead>
         <tbody>${STATE.users.map(u=>`
           <tr>
-            <td>${esc(u.fullName)} ${u.id===STATE.currentUser.id? '<span class="muted" style="font-size:11px;">(you)</span>':''}</td>
+            <td>${esc(u.fullName)} ${u.id===STATE.currentUser.id? '<span class="muted" style="font-size:11px;">(you)</span>':''}${u.username? `<div class="muted mono" style="font-size:11px;">username: ${esc(u.username)}</div>`:''}</td>
             <td><span class="badge role">${esc(ROLES[u.role].label)}</span></td>
             <td>${u.role==='teacher' ? (STATE.teachers.find(t=>t.id===u.teacherId)? esc(STATE.teachers.find(t=>t.id===u.teacherId).name) : `<span class="muted">Not linked yet</span>`) : `<span class="muted">—</span>`}</td>
             <td class="muted mono" style="font-size:11px;">${u.createdAt? fmtDT(u.createdAt):'—'}</td>
@@ -1416,7 +1448,7 @@ function renderUsers(main){
               </select>` : ''}
               ` : `<span class="muted" style="font-size:11.5px;">sign in as someone else to change this</span>`}
             </td>
-            <td>${u.email? `<button class="btn ghost" data-resetpw="${esc(u.email)}" style="font-size:11.5px;padding:6px 10px;">Reset Password</button>` : `<span class="muted" style="font-size:11px;">no email on file</span>`}</td>
+            <td>${u.username? `<button class="btn ghost" data-setpw="${u.id}" style="font-size:11.5px;padding:6px 10px;">Set New Password</button>` : u.email? `<button class="btn ghost" data-resetpw="${esc(u.email)}" style="font-size:11.5px;padding:6px 10px;">Reset Password</button>` : `<span class="muted" style="font-size:11px;">no email on file</span>`}</td>
           </tr>`).join('')}</tbody></table>
     </div>
     <div class="panel">
@@ -1446,6 +1478,9 @@ function renderUsers(main){
       render(); toast('Linked teacher updated');
     };
   });
+  main.querySelectorAll('[data-setpw]').forEach(btn=>{
+    btn.onclick = ()=>{ const u = STATE.users.find(x=>x.id===btn.dataset.setpw); if(u) openSetPasswordModal(u.id, u.fullName, u.username); };
+  });
   main.querySelectorAll('[data-resetpw]').forEach(btn=>{
     btn.onclick = async ()=>{
       const email = btn.dataset.resetpw;
@@ -1456,6 +1491,66 @@ function renderUsers(main){
       btn.disabled=false; btn.textContent=orig;
     };
   });
+}
+
+function openChangePasswordModal(isFirstLogin){
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>${isFirstLogin? 'Choose your own password' : 'Change Password'}</h3>
+    <p class="mhint">${isFirstLogin? 'You signed in with a password the school gave you. You can set your own private password now, or do it later from Change Password in the menu.' : 'Enter a new password for your account.'}</p>
+    <div class="field"><label>New Password</label><input type="password" id="cpNew" placeholder="At least 6 characters" autocomplete="new-password"></div>
+    <div class="field"><label>Confirm New Password</label><input type="password" id="cpNew2" autocomplete="new-password"></div>
+    <div class="modal-actions"><button class="btn ghost" data-close>${isFirstLogin? 'Skip for now' : 'Cancel'}</button><button class="btn" id="cpSave">Save Password</button></div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#cpSave').onclick = async ()=>{
+    const p1 = modalRoot.querySelector('#cpNew').value, p2 = modalRoot.querySelector('#cpNew2').value;
+    if(!p1 || p1.length<6){ toast('Password must be at least 6 characters'); return; }
+    if(p1!==p2){ toast('Passwords do not match'); return; }
+    const btn = modalRoot.querySelector('#cpSave'); btn.disabled=true; btn.textContent='Saving…';
+    const {error} = await sb.auth.updateUser({password:p1, data:{must_change_password:false}});
+    if(error){ toast('Error: '+error.message); btn.disabled=false; btn.textContent='Save Password'; return; }
+    if(STATE.currentUser) STATE.currentUser.mustChangePassword = false;
+    closeModal(); toast('Password changed');
+  };
+}
+function openCredentialsModal(name, username, password){
+  const url = window.location.href.split('#')[0].split('?')[0];
+  const text = `Login for ${name}\nWebsite: ${url}\nUsername: ${username}\nPassword: ${password}`;
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>Login ready for ${esc(name)}</h3>
+    <p class="mhint">Share these details with the teacher. This password is shown only now, so copy it before closing. They can change it after signing in.</p>
+    <div class="panel" style="margin:0 0 12px;">
+      <div style="font-size:13px;margin-bottom:6px;">Username: <strong class="mono">${esc(username)}</strong></div>
+      <div style="font-size:13px;">Password: <strong class="mono">${esc(password)}</strong></div>
+    </div>
+    <div class="modal-actions"><button class="btn ghost" id="crCopy">Copy Details</button><button class="btn" data-close>Done</button></div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#crCopy').onclick = async ()=>{
+    try{ await navigator.clipboard.writeText(text); toast('Copied'); }catch(e){ toast('Could not copy — please write the details down'); }
+  };
+}
+function openSetPasswordModal(userId, name, username){
+  openModal(`
+    <button class="close-x" data-close>×</button>
+    <h3>Set New Password</h3>
+    <p class="mhint">${esc(name)} · username <strong class="mono">${esc(username)}</strong>. They will be asked to choose their own password the next time they sign in.</p>
+    <div class="field"><label>New Password</label><input type="text" id="spPass" placeholder="At least 6 characters" autocomplete="off"></div>
+    <div class="modal-actions"><button class="btn ghost" id="spGen">Generate</button><button class="btn ghost" data-close>Cancel</button><button class="btn" id="spSave">Save Password</button></div>
+  `);
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  modalRoot.querySelector('#spGen').onclick = ()=>{ modalRoot.querySelector('#spPass').value = randomPassword(); };
+  modalRoot.querySelector('#spSave').onclick = async ()=>{
+    const pw = modalRoot.querySelector('#spPass').value;
+    if(!pw || pw.length<6){ toast('Password must be at least 6 characters'); return; }
+    const btn = modalRoot.querySelector('#spSave'); btn.disabled=true; btn.textContent='Saving…';
+    try{
+      await callLoginAdmin({action:'reset_password', user_id:userId, password:pw});
+      closeModal(); openCredentialsModal(name, username, pw);
+    }catch(e){ toast('Error: '+(e.message||e)); btn.disabled=false; btn.textContent='Save Password'; }
+  };
 }
 
 /* ============================= MODALS ============================= */
@@ -2599,6 +2694,7 @@ function openTeacherModal(teacherId){
   const editing = !!teacherId;
   const t = editing ? STATE.teachers.find(x=>x.id===teacherId) : null;
   const assignedNow = editing ? new Set(STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).map(ct=>ct.class_code)) : new Set();
+  const existingLogin = editing ? STATE.users.find(u=>u.teacherId===t.id && u.username) : null;
   const subjectsNow = {};
   if(editing) STATE.classTeachers.filter(ct=>ct.teacher_id===t.id).forEach(ct=>{ subjectsNow[ct.class_code] = ct.subjects||[]; });
   openModal(`
@@ -2643,6 +2739,19 @@ function openTeacherModal(teacherId){
       </select></div>
     </div>
     <div class="field"><label>Hire Date</label><input type="date" id="tHire" value="${editing&&t.hireDate?t.hireDate:''}"></div>
+    <div class="field"><label>Login</label>
+      ${existingLogin ? `
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:13px;">
+          <span>Username: <strong class="mono">${esc(existingLogin.username)}</strong></span>
+          <button type="button" class="btn small ghost" id="tSetPw">Set New Password</button>
+        </div>` : `
+        <div class="field2">
+          <div class="field"><label>Username (no email needed)</label><input type="text" id="tLoginUser" placeholder="e.g. mary.kollie" autocapitalize="none" autocomplete="off"></div>
+          <div class="field"><label>Default Password</label><input type="text" id="tLoginPass" placeholder="At least 6 characters" autocomplete="off"></div>
+        </div>
+        <button type="button" class="btn small ghost" id="tGenLogin">Generate Username &amp; Password</button>
+        <span class="muted" style="font-size:11.5px;margin-left:8px;">Optional. Leave blank to skip.</span>`}
+    </div>
     <div class="field"><label>Resume / CV</label>
       <input type="file" id="tResumeFile" accept=".pdf,.doc,.docx">
       ${editing && t.resumeUrl? `<div style="margin-top:6px;font-size:12.5px;"><a href="${esc(t.resumeUrl)}" target="_blank" style="color:var(--blue);text-decoration:underline;">Current resume on file</a></div>`:''}
@@ -2666,6 +2775,14 @@ function openTeacherModal(teacherId){
       if(panel) panel.style.display = cb.checked ? 'grid' : 'none';
     };
   });
+  const genBtn = modalRoot.querySelector('#tGenLogin');
+  if(genBtn) genBtn.onclick = ()=>{
+    const u = modalRoot.querySelector('#tLoginUser'), pw = modalRoot.querySelector('#tLoginPass');
+    if(!u.value.trim()) u.value = suggestUsername(modalRoot.querySelector('#tName').value);
+    pw.value = randomPassword();
+  };
+  const spBtn = modalRoot.querySelector('#tSetPw');
+  if(spBtn) spBtn.onclick = ()=> openSetPasswordModal(existingLogin.id, t.name, existingLogin.username);
   let pendingTDocs = editing ? [...(t.documents||[])] : [];
   modalRoot.querySelectorAll('[data-tdoc-remove]').forEach(b=>{
     b.onclick = ()=>{ pendingTDocs.splice(Number(b.dataset.tdocRemove),1); b.closest('div').remove(); };
@@ -2673,6 +2790,13 @@ function openTeacherModal(teacherId){
   modalRoot.querySelector('#tSave').onclick = async ()=>{
     const name = modalRoot.querySelector('#tName').value.trim();
     if(!name){ toast("Enter the teacher's name"); return; }
+    const loginUserEl = modalRoot.querySelector('#tLoginUser'), loginPassEl = modalRoot.querySelector('#tLoginPass');
+    const loginUser = loginUserEl ? loginUserEl.value.trim().toLowerCase() : '';
+    const loginPass = loginPassEl ? loginPassEl.value : '';
+    if(loginUser || loginPass){
+      if(!/^[a-z0-9._-]{3,30}$/.test(loginUser)){ toast('Username must be 3–30 characters: letters, numbers, dot, dash or underscore, no spaces'); return; }
+      if(loginPass.length<6){ toast('Default password must be at least 6 characters'); return; }
+    }
     const saveBtn = modalRoot.querySelector('#tSave'); saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
     try{
       const teacherId2 = editing? t.id : nextTeacherId();
@@ -2714,7 +2838,18 @@ function openTeacherModal(teacherId){
       STATE.classTeachers = STATE.classTeachers.filter(ct=>ct.teacher_id!==teacherId2);
       selectedClasses.forEach(cc=> STATE.classTeachers.push({id:`ct_${teacherId2}_${cc}`, academic_year_id:ayId, class_code:cc, teacher_id:teacherId2, subjects:subjectsForClass[cc]||[]}));
       if(editing){ Object.assign(t, payload); } else { STATE.teachers.push(payload); }
-      closeModal(); render(); toast(editing? 'Teacher updated' : 'Teacher added');
+      let loginResult = null, loginErr = '';
+      if(loginUser && loginPass){
+        try{
+          const r = await callLoginAdmin({action:'create', username:loginUser, password:loginPass, full_name:name, teacher_id:teacherId2});
+          STATE.users.push({id:r.user_id, fullName:name, role:'teacher', teacherId:teacherId2, email:r.email, username:r.username, createdAt:new Date().toISOString()});
+          loginResult = {username:r.username, password:loginPass};
+        }catch(e){ loginErr = e.message||String(e); }
+      }
+      closeModal(); render();
+      if(loginResult){ openCredentialsModal(name, loginResult.username, loginResult.password); }
+      else if(loginErr){ toast('Teacher saved, but the login was not created: '+loginErr); }
+      else { toast(editing? 'Teacher updated' : 'Teacher added'); }
     }catch(err){
       toast('Upload error: '+(err.message||err));
     }finally{
