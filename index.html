@@ -179,8 +179,13 @@
   .ps-table{width:100%;border-collapse:collapse;font-size:11.5px;margin-bottom:10px;}
   .ps-table th,.ps-table td{border:1px solid #999;padding:4px 6px;}
   .ps-table th{background:#eee;}
-  .ps-foot{margin-top:26px;display:flex;justify-content:space-between;font-size:12px;}
-  .ps-sig{border-top:1px solid #333;padding-top:4px;width:180px;text-align:center;}
+  .ps-foot{margin-top:46px;display:flex;justify-content:space-between;gap:16px;font-size:12px;}
+  .ps-sig{border-top:1px solid #333;padding-top:4px;flex:1;max-width:215px;text-align:center;}
+  .ps-sig b{display:block;font-weight:600;}
+  .ps-sig-name{margin-top:8px;text-align:left;font-size:11.5px;color:#333;}
+  .ps-blank{display:inline-block;border-bottom:1px solid #333;width:118px;height:11px;vertical-align:bottom;}
+  .dash-bar{height:10px;border-radius:5px;background:#E6E1D4;position:relative;overflow:hidden;min-width:80px;}
+  .dash-bar > i{display:block;height:100%;border-radius:5px;}
   .ps-receipt{max-width:520px;border:1.5px solid #132340;padding:20px 24px;}
   .ps-receipt-top{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px dashed #999;padding-bottom:10px;margin-bottom:14px;}
   .ps-receipt-no{text-align:right;font-size:12px;}
@@ -195,7 +200,9 @@
     #printSheet, #printSheet *{-webkit-print-color-adjust:exact;print-color-adjust:exact;}
     body > *:not(#printSheet){display:none!important;}
     #printSheet{display:block!important;}
-    @page{margin:14mm;}
+    @page{margin:0;}
+    .ps-page{max-width:none;padding:14mm;box-sizing:border-box;}
+    .ps-page.ps-receipt{max-width:520px;margin:14mm;padding:20px 24px;}
   }
 </style>
 </head>
@@ -2145,6 +2152,7 @@ function renderGrades(main){
       <div><h2>Grade Reporting</h2><p>Restricted to Admin only. 3 periods + an exam per semester, 6 periods total.</p></div>
       <div class="topline-actions">
         <button class="btn ${tab==='report'?'':'ghost'}" data-gtab="report">Report Cards</button>
+        <button class="btn ${tab==='dash'?'':'ghost'}" data-gtab="dash">Class Dashboard</button>
         <button class="btn ${tab==='rank'?'':'ghost'}" data-gtab="rank">Class Ranking</button>
       </div>
     </div>
@@ -2152,14 +2160,14 @@ function renderGrades(main){
   `;
   main.querySelectorAll('[data-gtab]').forEach(b=> b.onclick = ()=>{ STATE.gradesTab = b.dataset.gtab; render(); });
   const body = main.querySelector('#gradesBody');
-  if(tab==='rank') renderClassRanking(body); else renderReportCards(body);
+  if(tab==='rank') renderClassRanking(body); else if(tab==='dash') renderGradesDashboard(body); else renderReportCards(body);
 }
 
 function renderReportCards(main){
   const cls = STATE.gradesClass || CLASS_DEFS[0].code;
   const list = STATE.students.filter(s=>s.classCode===cls).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   main.innerHTML = `
-    <div class="topline"><div></div><div class="topline-actions"><select id="gClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div></div>
+    <div class="topline"><div></div><div class="topline-actions"><button class="btn ghost" id="gPrintAll">Download / Print All Grade Sheets</button><select id="gClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div></div>
     <div class="panel" style="overflow-x:auto;">
       ${list.length===0? `<p class="muted" style="font-size:13px;">No students in this class yet.</p>` : `
       <table><thead><tr><th>ID</th><th>Name</th><th class="tright">Subjects Recorded</th><th class="tright">Sem 1 Avg</th><th class="tright">Sem 2 Avg</th><th></th></tr></thead>
@@ -2175,6 +2183,7 @@ function renderReportCards(main){
     <p class="muted" style="font-size:12px;">Only Admin accounts can view or edit grades — Bursars and Viewers have no access to this section.</p>
   `;
   main.querySelector('#gClass').onchange = e=>{ STATE.gradesClass = e.target.value; render(); };
+  main.querySelector('#gPrintAll').onclick = ()=> printClassGradeSheets(cls);
   main.querySelectorAll('[data-grade]').forEach(b=> b.onclick = ()=> openGradesModal(b.dataset.grade));
   main.querySelectorAll('[data-gradesheet]').forEach(b=> b.onclick = ()=> openGradeSheet(b.dataset.gradesheet));
   main.querySelectorAll('[data-transcript]').forEach(b=> b.onclick = ()=> openTranscriptModal(b.dataset.transcript));
@@ -2182,11 +2191,18 @@ function renderReportCards(main){
 
 function printSheet(html){
   document.getElementById('printSheet').innerHTML = html;
+  const oldTitle = document.title;
+  document.title = (STATE.schoolInfo && STATE.schoolInfo.name) || 'School';
+  const restore = ()=>{ document.title = oldTitle; window.removeEventListener('afterprint', restore); };
+  window.addEventListener('afterprint', restore);
   setTimeout(()=> window.print(), 50);
 }
-function openGradeSheet(studentId){
+function sigBlock(label, name){
+  return `<div class="ps-sig"><b>${label}</b><div class="ps-sig-name">Name: ${name? esc(name) : '<span class="ps-blank"></span>'}</div></div>`;
+}
+function buildGradeSheetPage(studentId, breakAfter){
   const s = STATE.students.find(x=>x.id===studentId);
-  if(!s) return;
+  if(!s) return '';
   const rows = STATE.grades.filter(g=>g.studentId===studentId).sort((a,b)=>(a.subject||'').localeCompare(b.subject||''));
   const si = STATE.schoolInfo;
   const avgOf = (keyList)=>{
@@ -2201,8 +2217,8 @@ function openGradeSheet(studentId){
       ${GRADE_COLS_S2.map(([k])=>scoreTd(r[k])).join('')}
       ${avgTd(gradeAvg(r,'s2'))}
     </tr>`).join('') : `<tr><td colspan="11" class="tcenter" style="color:#888;">No grades recorded yet</td></tr>`;
-  printSheet(`
-    <div class="ps-page">
+  return `
+    <div class="ps-page" style="${breakAfter?'page-break-after:always;':''}">
       <div class="ps-head">
         ${si.logoUrl? `<img src="${esc(si.logoUrl)}" style="width:52px;height:52px;object-fit:contain;margin:0 auto 6px;display:block;">` : ''}
         <h1>${esc(si.name)||'School Name'}</h1>
@@ -2230,11 +2246,21 @@ function openGradeSheet(studentId){
         <div><b>Semester 2 Overall Average:</b> ${avgOf('s2')}</div>
       </div>
       <div class="ps-foot">
-        <div class="ps-sig">${esc(si.principal)||''}<br>Principal</div>
-        <div class="ps-sig">${esc(si.bursar)||''}<br>Registrar / Bursar</div>
+        ${sigBlock('Class Sponsor / Teacher','')}
+        ${sigBlock('Registrar / Bursar', si.bursar)}
+        ${sigBlock('Principal', si.principal)}
       </div>
     </div>
-  `);
+  `;
+}
+function openGradeSheet(studentId){
+  const page = buildGradeSheetPage(studentId, false);
+  if(page) printSheet(page);
+}
+function printClassGradeSheets(classCode){
+  const list = STATE.students.filter(x=>x.classCode===classCode).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
+  if(list.length===0){ toast('No students in this class yet'); return; }
+  printSheet(list.map((st,i)=> buildGradeSheetPage(st.id, i<list.length-1)).join(''));
 }
 
 function openClassRosterModal(){
@@ -2382,8 +2408,8 @@ async function openTranscriptModal(studentId){
         <div><b>Cumulative Semester 2 Average:</b> ${overallS2!==null?overallS2.toFixed(1):'—'}</div>
       </div>
       <div class="ps-foot">
-        <div class="ps-sig">${esc(si.principal)||''}<br>Principal</div>
-        <div class="ps-sig">${esc(si.bursar)||''}<br>Registrar / Bursar</div>
+        ${sigBlock('Registrar / Bursar', si.bursar)}
+        ${sigBlock('Principal', si.principal)}
       </div>
     </div>
   `);
@@ -2561,6 +2587,105 @@ function openGradesModal(studentId){
     });
   }
   draw();
+}
+
+
+/* ---- Class Dashboard (Grades) ---- */
+const PASS_MARK = 70; // same line used for the red/blue grade colours
+const DASH_PROGRESS = [['p1','P1'],['p2','P2'],['p3','P3'],['examS1','S1 Exam'],['p4','P4'],['p5','P5'],['p6','P6'],['examS2','S2 Exam']];
+function periodValue(g, key){
+  if(key==='avgS1') return gradeAvg(g,'s1');
+  if(key==='avgS2') return gradeAvg(g,'s2');
+  const keys = key==='overall' ? ['p1','p2','p3','examS1','p4','p5','p6','examS2'] : [key];
+  const vals = keys.map(k=>g[k]).filter(v=>v!==null && v!==undefined && v!=='').map(Number);
+  return vals.length ? vals.reduce((a,v)=>a+v,0)/vals.length : null;
+}
+function renderGradesDashboard(main){
+  const cls = STATE.dashClass || CLASS_DEFS[0].code;
+  const key = STATE.dashPeriod || 'overall';
+  const students = STATE.students.filter(s=>s.classCode===cls);
+  const ids = new Set(students.map(s=>s.id));
+  const rows = STATE.grades.filter(g=>ids.has(g.studentId));
+  const mean = a => a.length ? a.reduce((x,v)=>x+v,0)/a.length : null;
+
+  // per-student results for the chosen period
+  const results = students.map(st=>{
+    const subs = rows.filter(g=>g.studentId===st.id).map(g=>({subject:g.subject, v:periodValue(g,key)})).filter(x=>x.v!==null);
+    let avg;
+    if(key==='overall'){
+      avg = mean(rows.filter(g=>g.studentId===st.id).flatMap(g=>['p1','p2','p3','examS1','p4','p5','p6','examS2'].map(k=>g[k])).filter(v=>v!==null&&v!==undefined&&v!=='').map(Number));
+    } else avg = mean(subs.map(x=>x.v));
+    return {student:st, avg, subs, failed: subs.filter(x=>x.v<PASS_MARK)};
+  });
+  const graded = results.filter(r=>r.avg!==null);
+  const ranked = [...graded].sort((a,b)=>b.avg-a.avg);
+  const classAvg = mean(graded.map(r=>r.avg));
+  const passing = graded.filter(r=>r.avg>=PASS_MARK).length;
+  const struggling = graded.filter(r=>r.avg<PASS_MARK || r.failed.length>=3).sort((a,b)=>a.avg-b.avg);
+
+  // per-subject results
+  const subjMap = {};
+  rows.forEach(g=>{
+    const v = periodValue(g,key); if(v===null) return;
+    (subjMap[g.subject] = subjMap[g.subject] || []).push(v);
+  });
+  const subjects = Object.entries(subjMap).map(([name,vals])=>({name, avg:mean(vals), n:vals.length, failing:vals.filter(v=>v<PASS_MARK).length}))
+    .sort((a,b)=>b.avg-a.avg);
+  const doingWell = subjects.filter(x=>x.avg>=PASS_MARK);
+  const failingSubj = subjects.filter(x=>x.avg<PASS_MARK);
+
+  // progress across periods
+  const progress = DASH_PROGRESS.map(([k,lbl])=>{
+    const vals = rows.map(g=>g[k]).filter(v=>v!==null&&v!==undefined&&v!=='').map(Number);
+    return {lbl, avg:mean(vals), n:vals.length};
+  });
+  const bar = (v)=> v===null ? '' : `<div class="dash-bar"><i style="width:${Math.max(2,Math.min(100,v))}%;background:${v<PASS_MARK?'var(--red)':'var(--green)'};"></i></div>`;
+  const f1 = v => v===null ? '—' : v.toFixed(1);
+
+  main.innerHTML = `
+    <div class="topline"><div></div><div class="topline-actions">
+      <button class="btn ghost" id="dPrintAll">Download / Print All Grade Sheets</button>
+      <select id="dClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select>
+      <select id="dPeriod">${RANK_PERIODS.map(([k,lbl])=>`<option value="${k}" ${key===k?'selected':''}>${lbl}</option>`).join('')}</select>
+    </div></div>
+    ${graded.length===0 ? `<div class="panel"><p class="muted" style="font-size:13px;">No grades recorded yet for this class and period.</p></div>` : `
+    <div class="stat-row">
+      <div class="stat"><div class="label">Students Graded</div><div class="value">${graded.length}</div><div class="sub">of ${students.length} in class</div></div>
+      <div class="stat"><div class="label">Class Average</div><div class="value" style="color:${classAvg<PASS_MARK?'var(--red)':'var(--green)'};">${f1(classAvg)}</div><div class="sub">pass mark ${PASS_MARK}</div></div>
+      <div class="stat"><div class="label">Passing</div><div class="value">${passing}</div><div class="sub">${Math.round(passing/graded.length*100)}% of graded</div></div>
+      <div class="stat"><div class="label">Need Support</div><div class="value" style="color:${struggling.length?'var(--red)':'var(--green)'};">${struggling.length}</div><div class="sub">below ${PASS_MARK} or 3+ subjects failed</div></div>
+    </div>
+
+    <div class="panel">
+      <h3 style="margin:0 0 10px;font-size:15px;">Progress through the year</h3>
+      <div style="display:grid;grid-template-columns:70px 1fr 50px;gap:8px 10px;align-items:center;font-size:12.5px;">
+        ${progress.map(x=>`<div>${x.lbl}</div><div>${x.avg===null? '<span class="muted">no grades yet</span>' : bar(x.avg)}</div><div class="mono tright">${f1(x.avg)}</div>`).join('')}
+      </div>
+    </div>
+
+    <div class="panel" style="overflow-x:auto;">
+      <h3 style="margin:0 0 4px;font-size:15px;">Subject performance</h3>
+      <p class="muted" style="font-size:12px;margin:0 0 10px;">${doingWell.length} subject(s) doing well · ${failingSubj.length} below the pass mark${failingSubj.length? ': <strong>'+esc(failingSubj.map(x=>x.name).join(', '))+'</strong>':''}</p>
+      <table><thead><tr><th>Subject</th><th style="width:30%;"></th><th class="tright">Class Avg</th><th class="tright">Students Failing</th><th>Status</th></tr></thead>
+        <tbody>${subjects.map(x=>`<tr><td>${esc(x.name)}</td><td>${bar(x.avg)}</td><td class="tright mono"><strong>${f1(x.avg)}</strong></td><td class="tright mono">${x.failing} of ${x.n}</td><td><span class="badge ${x.avg>=PASS_MARK?'paid':'outstanding'}">${x.avg>=PASS_MARK?'Doing well':'Failing'}</span></td></tr>`).join('')}</tbody></table>
+    </div>
+
+    <div class="panel" style="overflow-x:auto;">
+      <h3 style="margin:0 0 10px;font-size:15px;">Students not doing well</h3>
+      ${struggling.length===0 ? `<p class="muted" style="font-size:13px;">No students are below the pass mark. 🎉</p>` : `
+      <table><thead><tr><th>Name</th><th class="tright">Average</th><th class="tright">Subjects Failed</th><th>Failing in</th></tr></thead>
+        <tbody>${struggling.map(r=>`<tr><td>${esc(r.student.name)||'<span class="muted">(unnamed)</span>'}<div class="muted mono" style="font-size:11px;">${esc(r.student.id)}</div></td><td class="tright mono" style="color:var(--red);font-weight:600;">${f1(r.avg)}</td><td class="tright mono">${r.failed.length}</td><td class="muted" style="font-size:12px;">${esc(r.failed.sort((a,b)=>a.v-b.v).map(x=>x.subject+' ('+Math.round(x.v)+')').join(', '))||'—'}</td></tr>`).join('')}</tbody></table>`}
+    </div>
+
+    <div class="panel" style="overflow-x:auto;">
+      <h3 style="margin:0 0 10px;font-size:15px;">Class ranking</h3>
+      <table><thead><tr><th>Rank</th><th>Name</th><th style="width:30%;"></th><th class="tright">Average</th></tr></thead>
+        <tbody>${ranked.map((r,i)=>`<tr><td><strong>${i+1}</strong></td><td>${esc(r.student.name)||'<span class="muted">(unnamed)</span>'}</td><td>${bar(r.avg)}</td><td class="tright mono" style="font-weight:600;color:${r.avg<PASS_MARK?'var(--red)':'inherit'};">${f1(r.avg)}</td></tr>`).join('')}</tbody></table>
+    </div>`}
+  `;
+  main.querySelector('#dClass').onchange = e=>{ STATE.dashClass = e.target.value; render(); };
+  main.querySelector('#dPeriod').onchange = e=>{ STATE.dashPeriod = e.target.value; render(); };
+  main.querySelector('#dPrintAll').onclick = ()=> printClassGradeSheets(cls);
 }
 
 function renderClassRanking(main){
