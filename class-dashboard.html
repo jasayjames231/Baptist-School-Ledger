@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Class Grade Dashboard</title>
+<style>
+:root{--ink:#1d2b3a;--muted:#5b6b7b;--line:#d9e0e6;--bg:#f4f7f9;--card:#fff;--accent:#0f6b6b;--pass:#1b6e3c;--fail:#b3261e}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;background:var(--bg);color:var(--ink);line-height:1.5}
+header{background:var(--ink);color:#fff;padding:18px 20px}
+header h1{margin:0;font-size:1.3rem}
+header p{margin:2px 0 0;opacity:.75;font-size:.9rem}
+main{max-width:980px;margin:0 auto;padding:18px 14px 50px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:18px}
+.bar label{display:flex;flex-direction:column;font-size:.85rem;color:var(--muted);gap:4px}
+select,button{font:inherit;padding:9px 12px;border-radius:6px;border:1px solid var(--line);background:#fff;color:var(--ink)}
+button{cursor:pointer;background:var(--accent);border-color:var(--accent);color:#fff;font-weight:600}
+button.alt{background:#fff;color:var(--accent)}
+button:disabled{opacity:.5;cursor:not-allowed}
+:focus-visible{outline:3px solid #f2b705;outline-offset:2px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:18px}
+.stat{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 14px}
+.stat b{display:block;font-size:1.7rem;line-height:1.1}
+.stat span{font-size:.85rem;color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px;margin-bottom:18px}
+section.box{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:14px 16px;margin-bottom:14px}
+.grid section.box{margin:0}
+h2{font-size:1.02rem;margin:0 0 8px}
+ol,ul{margin:0;padding-left:20px}
+li{margin:3px 0}
+.scroll{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.93rem}
+th,td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--line)}
+th{color:var(--muted);font-weight:600}
+.pass{color:var(--pass);font-weight:600}
+.fail{color:var(--fail);font-weight:600}
+.bar-track{background:#e8eef2;border-radius:4px;height:8px;min-width:80px}
+.bar-fill{height:8px;border-radius:4px;background:var(--accent)}
+.bar-fill.low{background:var(--fail)}
+.msg{padding:14px;color:var(--muted)}
+.err{color:var(--fail)}
+@media print{header,.bar{display:none}body{background:#fff}}
+</style>
+</head>
+<body>
+<header>
+  <h1 id="schoolTitle">Class Grade Dashboard</h1>
+  <p>Summary, ranking and printable grades for each class</p>
+</header>
+<main>
+  <div class="bar">
+    <label>Class <select id="classSel"><option value="">Loading…</option></select></label>
+    <label>Grading period <select id="periodSel"><option value="">Select a class first</option></select></label>
+    <button id="dlBtn" disabled>Download All (PDF)</button>
+    <button id="prBtn" class="alt" disabled>Print All</button>
+  </div>
+  <div id="out"><div class="msg">Choose a class to see its dashboard.</div></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<script>
+/* ============ EDIT ONLY THIS BLOCK ============ */
+const CONFIG = {
+  SUPABASE_URL: 'YOUR_SUPABASE_URL',
+  SUPABASE_KEY: 'YOUR_SUPABASE_ANON_KEY',
+  SCHOOL_NAME: 'Your School Name',
+  PASS_MARK: 70,
+  // table names
+  T: { classes: 'classes', students: 'students', grades: 'grades' },
+  // column names
+  C: {
+    classId: 'id', className: 'name',
+    studentId: 'id', studentName: 'name', studentClass: 'class_id',
+    gradeStudent: 'student_id', gradeSubject: 'subject',
+    gradePeriod: 'period', gradeScore: 'score'
+  }
+};
+/* ============================================== */
+
+const { T, C, PASS_MARK } = CONFIG;
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (m) => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
+const avg = (a) => a.length ? a.reduce((x, y) => x + y, 0) / a.length : 0;
+const r1 = (n) => Math.round(n * 10) / 10;
+
+let sb, students = [], allGrades = [], report = null;
+
+function showError(msg) { $('out').innerHTML = '<div class="msg err">' + esc(msg) + '</div>'; }
+
+async function init() {
+  $('schoolTitle').textContent = CONFIG.SCHOOL_NAME + ' – Class Grade Dashboard';
+  if (CONFIG.SUPABASE_URL.startsWith('YOUR_')) {
+    showError('Add your Supabase URL and anon key in the CONFIG block at the top of this file.');
+    return;
+  }
+  sb = window.supabase.createClient(CONFIG.SUPABASE_URL, CONFIG.SUPABASE_KEY);
+  const { data, error } = await sb.from(T.classes).select('*');
+  if (error) return showError('Could not load classes: ' + error.message);
+  $('classSel').innerHTML = '<option value="">Select a class</option>' +
+    data.map((c) => '<option value="' + esc(c[C.classId]) + '">' + esc(c[C.className]) + '</option>').join('');
+}
+
+async function onClass() {
+  const id = $('classSel').value;
+  report = null; $('dlBtn').disabled = $('prBtn').disabled = true;
+  if (!id) { $('periodSel').innerHTML = '<option value="">Select a class first</option>'; return; }
+  $('out').innerHTML = '<div class="msg">Loading grades…</div>';
+  const s = await sb.from(T.students).select('*').eq(C.studentClass, id);
+  if (s.error) return showError('Could not load students: ' + s.error.message);
+  students = s.data;
+  const ids = students.map((x) => x[C.studentId]);
+  if (!ids.length) { $('periodSel').innerHTML = '<option value="">No students</option>'; return showError('This class has no students yet.'); }
+  const g = await sb.from(T.grades).select('*').in(C.gradeStudent, ids);
+  if (g.error) return showError('Could not load grades: ' + g.error.message);
+  allGrades = g.data;
+  const periods = [...new Set(allGrades.map((x) => x[C.gradePeriod]))].filter((p) => p != null);
+  $('periodSel').innerHTML = periods.length
+    ? periods.map((p) => '<option value="' + esc(p) + '">' + esc(p) + '</option>').join('')
+    : '<option value="">No grades yet</option>';
+  render();
+}
+
+function build(period) {
+  const gs = allGrades.filter((g) => String(g[C.gradePeriod]) === String(period));
+  const by = {};
+  gs.forEach((g) => (by[g[C.gradeStudent]] ||= []).push(g));
+  const rows = students.map((s) => {
+    const list = (by[s[C.studentId]] || []).map((g) => ({ subject: g[C.gradeSubject], score: Number(g[C.gradeScore]) }));
+    const a = r1(avg(list.map((x) => x.score)));
+    return { name: s[C.studentName], subjects: list, average: a, passed: a >= PASS_MARK, has: list.length > 0 };
+  });
+  const ranked = rows.filter((r) => r.has).sort((a, b) => b.average - a.average);
+  ranked.forEach((r, i) => { r.rank = i > 0 && r.average === ranked[i - 1].average ? ranked[i - 1].rank : i + 1; });
+  const sm = {};
+  gs.forEach((g) => (sm[g[C.gradeSubject]] ||= []).push(Number(g[C.gradeScore])));
+  const subj = Object.entries(sm).map(([subject, v]) => ({ subject, average: r1(avg(v)) })).sort((a, b) => b.average - a.average);
+  const pc = ranked.filter((r) => r.passed).length, n = ranked.length;
+  return {
+    ranked, subj, n, pc, fc: n - pc,
+    classAvg: r1(avg(ranked.map((r) => r.average))),
+    passRate: n ? r1(pc / n * 100) : 0, failRate: n ? r1((n - pc) / n * 100) : 0,
+    missing: rows.filter((r) => !r.has).length
+  };
+}
+
+function render() {
+  const period = $('periodSel').value;
+  if (!period) return showError('No grades have been entered for this class yet.');
+  report = build(period);
+  const R = report;
+  if (!R.n) return showError('No grades found for this period.');
+  const top = R.ranked.slice(0, 5), low = R.ranked.filter((r) => !r.passed);
+  const best = R.subj[0], worst = R.subj[R.subj.length - 1];
+  $('out').innerHTML =
+    '<div class="stats">' +
+      '<div class="stat"><b>' + R.classAvg + '%</b><span>Class average</span></div>' +
+      '<div class="stat"><b class="pass">' + R.passRate + '%</b><span>Passing (' + R.pc + ' students)</span></div>' +
+      '<div class="stat"><b class="fail">' + R.failRate + '%</b><span>Below ' + PASS_MARK + ' (' + R.fc + ' students)</span></div>' +
+      '<div class="stat"><b>' + R.n + '</b><span>Students graded' + (R.missing ? ' (' + R.missing + ' with no grades)' : '') + '</span></div>' +
+    '</div>' +
+    '<div class="grid">' +
+      '<section class="box"><h2>Doing well</h2><ol>' + top.map((r) => '<li>' + esc(r.name) + ' – ' + r.average + '%</li>').join('') + '</ol></section>' +
+      '<section class="box"><h2>Needs attention (below ' + PASS_MARK + ')</h2>' +
+        (low.length ? '<ul>' + low.map((r) => '<li>' + esc(r.name) + ' – ' + r.average + '%</li>').join('') + '</ul>' : '<p class="msg" style="padding:0">No students below the passing mark.</p>') + '</section>' +
+    '</div>' +
+    '<section class="box"><h2>Subjects</h2>' +
+      '<p>Strongest: <b>' + esc(best.subject) + '</b> (' + best.average + '%) &nbsp; Weakest: <b>' + esc(worst.subject) + '</b> (' + worst.average + '%)</p>' +
+      '<div class="scroll"><table><tr><th>Subject</th><th>Class average</th><th></th></tr>' +
+      R.subj.map((s) => '<tr><td>' + esc(s.subject) + '</td><td>' + s.average + '%</td><td style="width:40%"><div class="bar-track"><div class="bar-fill ' + (s.average < PASS_MARK ? 'low' : '') + '" style="width:' + Math.min(100, s.average) + '%"></div></div></td></tr>').join('') +
+      '</table></div></section>' +
+    '<section class="box"><h2>Class ranking</h2><div class="scroll"><table><tr><th>Rank</th><th>Student</th><th>Average</th><th>Result</th></tr>' +
+      R.ranked.map((r) => '<tr><td>' + r.rank + '</td><td>' + esc(r.name) + '</td><td>' + r.average + '%</td><td class="' + (r.passed ? 'pass' : 'fail') + '">' + (r.passed ? 'Pass' : 'Below ' + PASS_MARK) + '</td></tr>').join('') +
+    '</table></div></section>';
+  $('dlBtn').disabled = $('prBtn').disabled = false;
+}
+
+function makePdf() {
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const cls = $('classSel').selectedOptions[0].textContent, period = $('periodSel').value;
+  const list = [...report.ranked].sort((a, b) => a.name.localeCompare(b.name));
+  list.forEach((s, i) => {
+    if (i) doc.addPage();
+    doc.setFontSize(16); doc.text(CONFIG.SCHOOL_NAME, 105, 18, { align: 'center' });
+    doc.setFontSize(11);
+    doc.text('Student: ' + s.name, 14, 32);
+    doc.text('Class: ' + cls, 14, 39);
+    doc.text('Grading period: ' + period, 14, 46);
+    doc.autoTable({
+      startY: 54,
+      head: [['Subject', 'Score', 'Result']],
+      body: s.subjects.map((g) => [g.subject, g.score, g.score >= PASS_MARK ? 'Pass' : 'Below ' + PASS_MARK])
+    });
+    const y = doc.lastAutoTable.finalY + 10;
+    doc.text('Average: ' + s.average + '%', 14, y);
+    doc.text('Class rank: ' + s.rank + ' of ' + report.n, 14, y + 7);
+    doc.text('Result: ' + (s.passed ? 'PASS' : 'BELOW PASSING MARK'), 14, y + 14);
+  });
+  return { doc, name: cls + '-' + period + '-all-grades.pdf' };
+}
+
+$('classSel').addEventListener('change', onClass);
+$('periodSel').addEventListener('change', render);
+$('dlBtn').addEventListener('click', () => { if (!report) return; const p = makePdf(); p.doc.save(p.name); });
+$('prBtn').addEventListener('click', () => { if (!report) return; const p = makePdf(); p.doc.autoPrint(); window.open(p.doc.output('bloburl'), '_blank'); });
+init();
+</script>
+</body>
+</html>
