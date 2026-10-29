@@ -2654,9 +2654,10 @@ function renderGradesDashboard(main){
   const rows = STATE.grades.filter(g=>ids.has(g.studentId));
   const hasData = k => rows.some(g=>periodValue(g,k)!==null);
   const singles = ['p1','p2','p3','examS1','p4','p5','p6','examS2'].filter(hasData);
-  const availPeriods = RANK_PERIODS.filter(([k])=> singles.length>1 ? hasData(k) : k===singles[0]);
+  // every period stays selectable; data is only shown where grades exist
   let key = STATE.dashPeriod;
-  if(!key || !availPeriods.some(([k])=>k===key)) key = singles.length===1 ? singles[0] : 'overall';
+  if(!key || !RANK_PERIODS.some(([k])=>k===key)) key = singles.length===1 ? singles[0] : (singles.length ? 'overall' : 'p1');
+  const keyLabel = (RANK_PERIODS.find(([k])=>k===key)||[0,'this period'])[1];
   const mean = a => a.length ? a.reduce((x,v)=>x+v,0)/a.length : null;
 
   // per-student results for the chosen period
@@ -2697,9 +2698,9 @@ function renderGradesDashboard(main){
     <div class="topline"><div></div><div class="topline-actions">
       <button class="btn ghost" id="dPrintAll">Download / Print All Grade Sheets</button>
       <select id="dClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select>
-      <select id="dPeriod">${(availPeriods.length?availPeriods:RANK_PERIODS).map(([k,lbl])=>`<option value="${k}" ${key===k?'selected':''}>${lbl}</option>`).join('')}</select>
+      <select id="dPeriod">${RANK_PERIODS.map(([k,lbl])=>`<option value="${k}" ${key===k?'selected':''}>${lbl}${hasData(k)?'':' (no grades yet)'}</option>`).join('')}</select>
     </div></div>
-    ${graded.length===0 ? `<div class="panel"><p class="muted" style="font-size:13px;">No grades recorded yet for this class and period.</p></div>` : `
+    ${graded.length===0 ? `<div class="panel"><p class="muted" style="font-size:13px;">No grades have been entered yet for ${esc(keyLabel)} in this class.</p></div>` : `
     <div class="stat-row">
       <div class="stat"><div class="label">Students Graded</div><div class="value">${graded.length}</div><div class="sub">of ${students.length} in class</div></div>
       <div class="stat"><div class="label">Class Average</div><div class="value" style="color:${classAvg<PASS_MARK?'var(--red)':'var(--green)'};">${f1(classAvg)}</div><div class="sub">pass mark ${PASS_MARK}</div></div>
