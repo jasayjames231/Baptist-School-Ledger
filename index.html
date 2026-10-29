@@ -2167,7 +2167,7 @@ function renderReportCards(main){
   const cls = STATE.gradesClass || CLASS_DEFS[0].code;
   const list = STATE.students.filter(s=>s.classCode===cls).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   main.innerHTML = `
-    <div class="topline"><div></div><div class="topline-actions"><button class="btn ghost" id="gPrintAll">Download / Print All Grade Sheets</button><select id="gClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div></div>
+    <div class="topline"><div></div><div class="topline-actions"><button class="btn ghost" id="gHistory">Edit History</button><button class="btn ghost" id="gPrintAll">Download / Print All Grade Sheets</button><select id="gClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div></div>
     <div class="panel" style="overflow-x:auto;">
       ${list.length===0? `<p class="muted" style="font-size:13px;">No students in this class yet.</p>` : `
       <table><thead><tr><th>ID</th><th>Name</th><th class="tright">Subjects Recorded</th><th class="tright">Sem 1 Avg</th><th class="tright">Sem 2 Avg</th><th></th></tr></thead>
@@ -2184,6 +2184,7 @@ function renderReportCards(main){
   `;
   main.querySelector('#gClass').onchange = e=>{ STATE.gradesClass = e.target.value; render(); };
   main.querySelector('#gPrintAll').onclick = ()=> printClassGradeSheets(cls);
+  main.querySelector('#gHistory').onclick = ()=> openGradeEditLog();
   main.querySelectorAll('[data-grade]').forEach(b=> b.onclick = ()=> openGradesModal(b.dataset.grade));
   main.querySelectorAll('[data-gradesheet]').forEach(b=> b.onclick = ()=> openGradeSheet(b.dataset.gradesheet));
   main.querySelectorAll('[data-transcript]').forEach(b=> b.onclick = ()=> openTranscriptModal(b.dataset.transcript));
@@ -2484,8 +2485,15 @@ function openPaymentReceipt(logId){
   `);
 }
 
-function openGradesModal(studentId){
+function requestGradeEdit(studentId){
+  const st = STATE.students.find(x=>x.id===studentId);
+  openReasonModal('Reason for editing grades',
+    `${(st&&st.name)||studentId}: grades are normally entered by teachers while a period is open. Please state why you are changing them. The reason is saved with your name and the date.`,
+    'Continue to Edit', reason=>{ closeModal(); openGradesModal(studentId, reason); });
+}
+function openGradesModal(studentId, editReason){
   if(!can('manageGrades')) return;
+  if(STATE.currentUser.role==='admin' && !editReason){ requestGradeEdit(studentId); return; }
   const s = STATE.students.find(x=>x.id===studentId);
   if(!s) return;
   let rows = STATE.grades.filter(g=>g.studentId===studentId).map(g=>({...g}));
@@ -2572,11 +2580,38 @@ function openGradesModal(studentId){
       }
       const toDelete = existingBefore.filter(g=>!keepIds.has(g.id));
       for(const g of toDelete){ await sb.from('grades').delete().eq('id', g.id); }
+      // Record why an admin changed the grades
+      let logWarn = false;
+      if(editReason){
+        const norm = v => (v===null||v===undefined||v==='') ? '' : String(Number(v));
+        const colLbl = k => k==='examS1' ? 'S1 Exam' : k==='examS2' ? 'S2 Exam' : k.toUpperCase();
+        const changes = [];
+        clean.forEach(r=>{
+          const nm = r.subject.trim();
+          const old = existingBefore.find(g=>g.subject===nm);
+          if(!old){ changes.push(nm+': added'); return; }
+          [...GRADE_COLS_S1, ...GRADE_COLS_S2].forEach(([k])=>{
+            if(norm(old[k])!==norm(r[k])) changes.push(nm+' '+colLbl(k)+': '+(norm(old[k])||'blank')+' -> '+(norm(r[k])||'blank'));
+          });
+          if((old.remarks||'')!==(r.remarks||'')) changes.push(nm+' remarks changed');
+        });
+        toDelete.forEach(g=> changes.push(g.subject+': removed'));
+        if(changes.length){
+          const {error:logErr} = await sb.from('grade_edit_log').insert({
+            id:'gel_'+Date.now()+'_'+Math.random().toString(36).slice(2,7),
+            school_id:STATE.currentUser.schoolId, academic_year_id:STATE.currentAcademicYearId,
+            student_id:studentId, student_name:s.name, class_code:s.classCode,
+            reason:editReason, changes:changes.join('; '),
+            edited_by:STATE.currentUser.id, edited_by_name:STATE.currentUser.fullName});
+          if(logErr) logWarn = true;
+        }
+      }
       STATE.grades = STATE.grades.filter(g=>g.studentId!==studentId).concat(clean.map(r=>({
         id: studentId+'::'+STATE.currentAcademicYearId+'::'+slugify(r.subject), studentId, subject:r.subject.trim(), p1:r.p1,p2:r.p2,p3:r.p3,examS1:r.examS1,p4:r.p4,p5:r.p5,p6:r.p6,examS2:r.examS2,
         remarks:r.remarks, updatedByName: STATE.currentUser.fullName, updatedAt: new Date().toISOString(),
       })));
-      closeModal(); render(); toast('Report card saved');
+      closeModal(); render();
+      toast(logWarn ? 'Report card saved, but the reason could not be recorded (the edit-log table has not been created yet).' : 'Report card saved');
     };
   }
   function syncRows(){
@@ -2590,6 +2625,18 @@ function openGradesModal(studentId){
 }
 
 
+async function openGradeEditLog(){
+  openModal(`<button class="close-x" data-close>×</button><h3>Grade Edit History</h3><p class="mhint">Every time an admin changed a report card, the reason is kept here.</p><div id="gelBody" class="muted" style="font-size:13px;">Loading…</div><div class="modal-actions"><button class="btn" data-close>Close</button></div>`, 'wide');
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  const {data, error} = await sb.from('grade_edit_log').select('*').order('edited_at', {ascending:false}).limit(200);
+  const box = modalRoot.querySelector('#gelBody'); if(!box) return;
+  if(error){ box.textContent = 'The edit-log table has not been created yet, so no history can be shown.'; return; }
+  if(!data || data.length===0){ box.textContent = 'No grade edits have been recorded yet.'; return; }
+  box.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>When</th><th>Student</th><th>Edited by</th><th>Reason</th><th>What changed</th></tr></thead><tbody>${
+    data.map(r=>`<tr><td style="white-space:nowrap;">${esc(fmtDT(r.edited_at))}</td><td>${esc(r.student_name||r.student_id)}<div class="muted" style="font-size:11px;">${esc(CLASS_LABEL[r.class_code]||r.class_code||'')}</div></td><td>${esc(r.edited_by_name||'')}</td><td>${esc(r.reason)}</td><td class="muted" style="font-size:12px;">${esc(r.changes||'')}</td></tr>`).join('')
+  }</tbody></table></div>`;
+}
+
 /* ---- Class Dashboard (Grades) ---- */
 const PASS_MARK = 70; // same line used for the red/blue grade colours
 const DASH_PROGRESS = [['p1','P1'],['p2','P2'],['p3','P3'],['examS1','S1 Exam'],['p4','P4'],['p5','P5'],['p6','P6'],['examS2','S2 Exam']];
@@ -2602,10 +2649,14 @@ function periodValue(g, key){
 }
 function renderGradesDashboard(main){
   const cls = STATE.dashClass || CLASS_DEFS[0].code;
-  const key = STATE.dashPeriod || 'overall';
   const students = STATE.students.filter(s=>s.classCode===cls);
   const ids = new Set(students.map(s=>s.id));
   const rows = STATE.grades.filter(g=>ids.has(g.studentId));
+  const hasData = k => rows.some(g=>periodValue(g,k)!==null);
+  const singles = ['p1','p2','p3','examS1','p4','p5','p6','examS2'].filter(hasData);
+  const availPeriods = RANK_PERIODS.filter(([k])=> singles.length>1 ? hasData(k) : k===singles[0]);
+  let key = STATE.dashPeriod;
+  if(!key || !availPeriods.some(([k])=>k===key)) key = singles.length===1 ? singles[0] : 'overall';
   const mean = a => a.length ? a.reduce((x,v)=>x+v,0)/a.length : null;
 
   // per-student results for the chosen period
@@ -2638,7 +2689,7 @@ function renderGradesDashboard(main){
   const progress = DASH_PROGRESS.map(([k,lbl])=>{
     const vals = rows.map(g=>g[k]).filter(v=>v!==null&&v!==undefined&&v!=='').map(Number);
     return {lbl, avg:mean(vals), n:vals.length};
-  });
+  }).filter(x=>x.n>0);
   const bar = (v)=> v===null ? '' : `<div class="dash-bar"><i style="width:${Math.max(2,Math.min(100,v))}%;background:${v<PASS_MARK?'var(--red)':'var(--green)'};"></i></div>`;
   const f1 = v => v===null ? '—' : v.toFixed(1);
 
@@ -2646,7 +2697,7 @@ function renderGradesDashboard(main){
     <div class="topline"><div></div><div class="topline-actions">
       <button class="btn ghost" id="dPrintAll">Download / Print All Grade Sheets</button>
       <select id="dClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select>
-      <select id="dPeriod">${RANK_PERIODS.map(([k,lbl])=>`<option value="${k}" ${key===k?'selected':''}>${lbl}</option>`).join('')}</select>
+      <select id="dPeriod">${(availPeriods.length?availPeriods:RANK_PERIODS).map(([k,lbl])=>`<option value="${k}" ${key===k?'selected':''}>${lbl}</option>`).join('')}</select>
     </div></div>
     ${graded.length===0 ? `<div class="panel"><p class="muted" style="font-size:13px;">No grades recorded yet for this class and period.</p></div>` : `
     <div class="stat-row">
@@ -2657,7 +2708,8 @@ function renderGradesDashboard(main){
     </div>
 
     <div class="panel">
-      <h3 style="margin:0 0 10px;font-size:15px;">Progress through the year</h3>
+      <h3 style="margin:0 0 4px;font-size:15px;">Progress so far</h3>
+      <p class="muted" style="font-size:12px;margin:0 0 10px;">Only periods with grades entered are shown: ${esc(progress.map(x=>x.lbl).join(", "))}</p>
       <div style="display:grid;grid-template-columns:70px 1fr 50px;gap:8px 10px;align-items:center;font-size:12.5px;">
         ${progress.map(x=>`<div>${x.lbl}</div><div>${x.avg===null? '<span class="muted">no grades yet</span>' : bar(x.avg)}</div><div class="mono tright">${f1(x.avg)}</div>`).join('')}
       </div>
