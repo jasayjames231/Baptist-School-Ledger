@@ -259,7 +259,7 @@ const CLASS_DEFS = [
 ];
 const CLASS_LABEL = Object.fromEntries(CLASS_DEFS.map(c=>[c.code,c.label]));
 const SUBJECTS = ['English Grammar','Mathematics','General Science','Social Studies','Bible','Spelling','Reading','Writing','Civics','Computer',
-  'Physical Education','Vocabulary','History','Composition','Literature','Geography','RME','ROTC/PE','Chemistry','Biology','Physics','Economics','Drawing/Arts','Language Arts','Government'];
+  'Physical Education','Vocabulary','History','Composition','Literature','Geography','RME','ROTC/PE','Chemistry','Biology','Physics','Economics','Drawing/Arts','Language Arts','Government','Phonics'];
 
 function mkFees(tS1,tS2,reg,exam,act,uni,lib){
   return {
@@ -2210,6 +2210,22 @@ function buildGradeSheetPage(studentId, breakAfter){
     const vals = rows.map(g=>gradeAvg(g, keyList)).filter(v=>v!==null);
     return vals.length? (vals.reduce((a,v)=>a+v,0)/vals.length).toFixed(1) : '—';
   };
+  const colAvg = k => {
+    const v = rows.map(g=>g[k]).filter(x=>x!==null&&x!==undefined&&x!=='').map(Number);
+    return v.length ? v.reduce((a,x)=>a+x,0)/v.length : null;
+  };
+  const semOfCols = cols => {
+    const v = cols.map(([k])=>colAvg(k)).filter(x=>x!==null);
+    return v.length ? v.reduce((a,x)=>a+x,0)/v.length : null;
+  };
+  const periodRowHtml = rows.length ? `
+    <tr style="border-top:2px solid #333;background:#f2f2f2;">
+      <td><b>Period Average</b></td>
+      ${GRADE_COLS_S1.map(([k])=>avgTd(colAvg(k))).join('')}
+      ${avgTd(semOfCols(GRADE_COLS_S1))}
+      ${GRADE_COLS_S2.map(([k])=>avgTd(colAvg(k))).join('')}
+      ${avgTd(semOfCols(GRADE_COLS_S2))}
+    </tr>` : '';
   const rowsHtml = rows.length ? rows.map(r=>`
     <tr>
       <td>${esc(r.subject)}</td>
@@ -2240,7 +2256,7 @@ function buildGradeSheetPage(studentId, breakAfter){
           <tr><th rowspan="2" style="text-align:left;">Subject</th><th colspan="4" class="tcenter">Semester 1</th><th rowspan="2">Avg</th><th colspan="4" class="tcenter">Semester 2</th><th rowspan="2">Avg</th></tr>
           <tr>${GRADE_COLS_S1.map(([k,lbl])=>`<th>${lbl}</th>`).join('')}${GRADE_COLS_S2.map(([k,lbl])=>`<th>${lbl}</th>`).join('')}</tr>
         </thead>
-        <tbody>${rowsHtml}</tbody>
+        <tbody>${rowsHtml}${periodRowHtml}</tbody>
       </table>
       <div class="ps-meta">
         <div><b>Semester 1 Overall Average:</b> ${avgOf('s1')}</div>
