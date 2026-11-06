@@ -420,6 +420,64 @@ function gradeToRow(g){
     academic_year_id: STATE.currentAcademicYearId, school_id: STATE.currentUser.schoolId};
 }
 function numOrNull(v){ return (v===''||v===null||v===undefined) ? null : Number(v); }
+// Supabase returns at most 1000 rows per request. This reads ALL pages so nothing is silently dropped.
+async function fetchAll(makeQuery){
+  const size = 1000; let all = [], from = 0;
+  while(true){
+    const {data, error} = await makeQuery().range(from, from+size-1);
+    if(error) return {data: all.length? all : null, error};
+    all = all.concat(data||[]);
+    if(!data || data.length < size) break;
+    from += size;
+  }
+  return {data: all, error: null};
+}
+// Reload every grade this user is allowed to see, straight from Supabase (all pages).
+async function reloadGrades(){
+  const ayId = STATE.currentAcademicYearId;
+  const role = STATE.currentUser.role;
+  const {data} = await fetchAll(()=> sb.from('grades').select('*').eq('academic_year_id', ayId).order('subject').order('id'));
+  let rows = data || [];
+  if(role==='teacher'){
+    const myClasses = [...new Set((STATE.classTeachers||[]).map(r=>r.class_code))];
+    const ids = new Set(STATE.students.filter(s=>myClasses.includes(s.classCode)).map(s=>s.id));
+    rows = rows.filter(g=>ids.has(g.student_id));
+  }
+  STATE.grades = rows.map(gradeFromRow);
+  STATE.gradesLoadedAt = Date.now();
+}
+// Fresh grades for specific students (used before printing and before editing)
+async function freshGradesFor(studentIds){
+  const ayId = STATE.currentAcademicYearId;
+  let out = [];
+  for(let i=0;i<studentIds.length;i+=100){
+    const chunk = studentIds.slice(i,i+100);
+    const {data,error} = await fetchAll(()=> sb.from('grades').select('*').eq('academic_year_id', ayId).in('student_id', chunk).order('id'));
+    if(error) return null;
+    out = out.concat(data||[]);
+  }
+  return out.map(gradeFromRow);
+}
+async function syncGradesFor(studentIds){
+  const fresh = await freshGradesFor(studentIds);
+  if(fresh===null) return false;
+  const set = new Set(studentIds);
+  STATE.grades = STATE.grades.filter(g=>!set.has(g.studentId)).concat(fresh);
+  return true;
+}
+// Refresh grades in the background when the Grades pages are opened (so Admin always sees what teachers saved)
+function refreshGradesIfStale(){
+  if(STATE.gradesRefreshing) return;
+  if(Date.now() - (STATE.gradesLoadedAt||0) < 15000) return;
+  STATE.gradesRefreshing = true;
+  STATE.gradesLoadedAt = Date.now();
+  const before = STATE.grades.length + ':' + STATE.grades.map(g=>g.updatedAt||'').join('|').length;
+  reloadGrades().then(()=>{
+    STATE.gradesRefreshing = false;
+    const after = STATE.grades.length + ':' + STATE.grades.map(g=>g.updatedAt||'').join('|').length;
+    if(before!==after && STATE.view==='grades') render();
+  }).catch(()=>{ STATE.gradesRefreshing = false; });
+}
 function gradeAvg(g, part){
   const keys = part==='s1' ? ['p1','p2','p3','examS1'] : ['p4','p5','p6','examS2'];
   const vals = keys.map(k=>g[k]).filter(v=>v!==null && v!==undefined && v!=='');
@@ -579,10 +637,10 @@ async function loadAllData(){
   STATE.gradePeriods = (curYear && curYear.grade_periods) ? curYear.grade_periods : {};
   const [cfgRes, studentsRes, enrRes, logRes, profilesRes] = await Promise.all([
     sb.from('school_config').select('*').eq('school_id', schoolId).single(),
-    sb.from('students').select('*').order('id'),
-    sb.from('enrollments').select('*').eq('academic_year_id', ayId),
-    sb.from('payment_log').select('*').order('submitted_at'),
-    sb.from('profiles').select('*').order('created_at'),
+    fetchAll(()=> sb.from('students').select('*').order('id')),
+    fetchAll(()=> sb.from('enrollments').select('*').eq('academic_year_id', ayId).order('id')),
+    fetchAll(()=> sb.from('payment_log').select('*').order('submitted_at').order('log_id')),
+    fetchAll(()=> sb.from('profiles').select('*').order('created_at').order('id')),
   ]);
   if(cfgRes.data){
     STATE.schoolInfo = {...DEFAULT_SCHOOL_INFO, ...(cfgRes.data.school_info||{})};
@@ -611,13 +669,12 @@ async function loadAllData(){
   STATE.log = (logRes.data||[]).map(logFromRow);
   STATE.users = (profilesRes.data||[]).map(r=>({id:r.id, fullName:r.full_name, role:r.role, teacherId:r.teacher_id||null, email:r.email||'', username:usernameFromEmail(r.email), createdAt:r.created_at}));
   if(can('manageGrades')){
-    const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId).order('subject');
-    STATE.grades = (gradesData||[]).map(gradeFromRow);
+    await reloadGrades();
   }
   if(can('manageTeachers')){
     const [teachersRes, payRes, ctRes] = await Promise.all([
       sb.from('teachers').select('*').order('name'),
-      sb.from('teacher_payments').select('*').order('month', {ascending:false}),
+      fetchAll(()=> sb.from('teacher_payments').select('*').order('month', {ascending:false}).order('id')),
       sb.from('class_teachers').select('*').eq('academic_year_id', ayId),
     ]);
     STATE.teachers = (teachersRes.data||[]).map(teacherFromRow);
@@ -629,19 +686,16 @@ async function loadAllData(){
     STATE.classTeachers = ctData||[];
     const myClasses = [...new Set((ctData||[]).map(r=>r.class_code))];
     if(myClasses.length){
-      const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId);
-      const myStudentIds = new Set(STATE.students.filter(s=>myClasses.includes(s.classCode)).map(s=>s.id));
-      STATE.grades = (gradesData||[]).filter(g=>myStudentIds.has(g.student_id)).map(gradeFromRow);
+      await reloadGrades();
     } else {
       STATE.grades = [];
     }
   }
   if(STATE.currentUser.role==='general_entry'){
-    const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId);
-    STATE.grades = (gradesData||[]).map(gradeFromRow);
+    await reloadGrades();
   }
   if(can('submitExpenditure')||can('approveExpenditures')){
-    const {data:expData} = await sb.from('expenditures').select('*').eq('academic_year_id', ayId).order('date', {ascending:false});
+    const {data:expData} = await fetchAll(()=> sb.from('expenditures').select('*').eq('academic_year_id', ayId).order('date', {ascending:false}).order('id'));
     STATE.expenditures = (expData||[]).map(expenditureFromRow);
   }
   STATE.outboxCount = (await getOutbox()).length;
@@ -650,8 +704,8 @@ async function loadAllData(){
 }
 async function refreshStudentsAndLog(){
   const [studentsRes, logRes] = await Promise.all([
-    sb.from('students').select('*').order('id'),
-    sb.from('payment_log').select('*').order('submitted_at'),
+    fetchAll(()=> sb.from('students').select('*').order('id')),
+    fetchAll(()=> sb.from('payment_log').select('*').order('submitted_at').order('log_id')),
   ]);
   STATE.students = (studentsRes.data||[]).map(studentFromRow);
   STATE.log = (logRes.data||[]).map(logFromRow);
@@ -2116,8 +2170,14 @@ function renderMyGrades(main){
       byStudent[sid][inp.dataset.k] = inp.value;
     });
     let anyError = false;
+    // always compare against the latest saved data, never an old copy
+    const freshRows = await freshGradesFor(Object.keys(byStudent));
+    const freshBySid = {};
+    (freshRows||[]).filter(r=>r.subject===curSubject).forEach(r=> freshBySid[r.studentId]=r);
+    if(freshRows===null){ toast('Could not reach the server. Your grades were NOT saved — check your internet and try again.'); saveBtn.disabled=false; saveBtn.textContent='Save Grades'; return; }
+    let savedCount = 0;
     for(const sid of Object.keys(byStudent)){
-      const existing = rowsByStudent[sid] || {};
+      const existing = freshBySid[sid] || {};
       const changes = byStudent[sid];
       const g = {
         id: sid+'::'+ayId+'::'+slugify(curSubject), studentId: sid, subject: curSubject,
@@ -2128,18 +2188,32 @@ function renderMyGrades(main){
         remarks: existing.remarks || null,
         updatedBy: STATE.currentUser.id, updatedByName: STATE.currentUser.fullName, updatedAt: new Date().toISOString(),
       };
+      const same = GRADE_PERIOD_KEYS.every(([dbk])=>{
+        const jk = Object.keys(GRADE_JS_TO_DB).find(k=>GRADE_JS_TO_DB[k]===dbk);
+        return String(numOrNull(g[jk])??'')===String(numOrNull(existing[jk])??'');
+      });
+      if(freshBySid[sid] && same) continue;   // nothing changed for this student
       const {error} = await sb.from('grades').upsert(gradeToRow(g));
       if(error){ toast('Error saving '+((STATE.students.find(x=>x.id===sid)||{}).name||sid)+': '+error.message); anyError = true; }
+      else savedCount++;
     }
-    const {data:gradesData} = await sb.from('grades').select('*').eq('academic_year_id', ayId);
-    if(isGeneral){
-      STATE.grades = (gradesData||[]).map(gradeFromRow);
-    } else {
-      const myClasses = [...new Set(STATE.classTeachers.map(r=>r.class_code))];
-      const myStudentIds = new Set(STATE.students.filter(s2=>myClasses.includes(s2.classCode)).map(s2=>s2.id));
-      STATE.grades = (gradesData||[]).filter(g2=>myStudentIds.has(g2.student_id)).map(gradeFromRow);
+    // read back what is really stored and confirm it matches what was typed
+    await reloadGrades();
+    let mismatch = 0;
+    const verifyRows = await freshGradesFor(Object.keys(byStudent));
+    if(verifyRows){
+      Object.keys(byStudent).forEach(sid=>{
+        const row = verifyRows.find(r=>r.studentId===sid && r.subject===curSubject);
+        Object.keys(byStudent[sid]).forEach(jk=>{
+          const typed = numOrNull(byStudent[sid][jk]);
+          const stored = row ? numOrNull(row[jk]) : null;
+          if(typed!==stored && !(typed===null && !row)) mismatch++;
+        });
+      });
     }
-    if(!anyError) toast('Grades saved');
+    if(anyError) { /* error toast already shown */ }
+    else if(mismatch>0) toast('Warning: '+mismatch+' score(s) did not save correctly. Please press Save Grades again and tell the Admin if it repeats.');
+    else toast(savedCount>0 ? 'Grades saved and confirmed for '+savedCount+' student'+(savedCount===1?'':'s') : 'No changes to save');
     saveBtn.disabled = false; saveBtn.textContent = 'Save Grades';
     render();
   };
@@ -2164,6 +2238,7 @@ function renderGrades(main){
 }
 
 function renderReportCards(main){
+  refreshGradesIfStale();
   const cls = STATE.gradesClass || CLASS_DEFS[0].code;
   const list = STATE.students.filter(s=>s.classCode===cls).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   main.innerHTML = `
@@ -2270,13 +2345,19 @@ function buildGradeSheetPage(studentId, breakAfter){
     </div>
   `;
 }
-function openGradeSheet(studentId){
+async function openGradeSheet(studentId){
+  toast('Loading latest grades…');
+  const ok = await syncGradesFor([studentId]);
+  if(!ok) toast('Could not reach the server — printing the grades already on this screen.');
   const page = buildGradeSheetPage(studentId, false);
   if(page) printSheet(page);
 }
-function printClassGradeSheets(classCode){
+async function printClassGradeSheets(classCode){
   const list = STATE.students.filter(x=>x.classCode===classCode).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   if(list.length===0){ toast('No students in this class yet'); return; }
+  toast('Loading latest grades…');
+  const ok = await syncGradesFor(list.map(x=>x.id));
+  if(!ok) toast('Could not reach the server — printing the grades already on this screen.');
   printSheet(list.map((st,i)=> buildGradeSheetPage(st.id, i<list.length-1)).join(''));
 }
 
@@ -2507,11 +2588,14 @@ function requestGradeEdit(studentId){
     `${(st&&st.name)||studentId}: grades are normally entered by teachers while a period is open. Please state why you are changing them. The reason is saved with your name and the date.`,
     'Continue to Edit', reason=>{ closeModal(); openGradesModal(studentId, reason); });
 }
-function openGradesModal(studentId, editReason){
+async function openGradesModal(studentId, editReason){
   if(!can('manageGrades')) return;
   if(STATE.currentUser.role==='admin' && !editReason){ requestGradeEdit(studentId); return; }
   const s = STATE.students.find(x=>x.id===studentId);
   if(!s) return;
+  // make sure we edit the latest saved grades, so teachers' newer entries are never overwritten
+  const synced = await syncGradesFor([studentId]);
+  if(!synced){ toast('Could not reach the server to load the latest grades. Please check your internet and try again.'); return; }
   let rows = STATE.grades.filter(g=>g.studentId===studentId).map(g=>({...g}));
   if(rows.length===0) rows = [BLANK_GRADE_ROW(studentId)];
   const allCols = [...GRADE_COLS_S1, ...GRADE_COLS_S2];
@@ -2586,9 +2670,16 @@ function openGradesModal(studentId, editReason){
       const clean = rows.filter(r=>r.subject && r.subject.trim());
       const existingBefore = STATE.grades.filter(g=>g.studentId===studentId);
       const keepIds = new Set();
+      const latestNow = await freshGradesFor([studentId]);
+      if(latestNow===null){ toast('Could not reach the server. Nothing was saved — try again.'); return; }
+      const sameRow = (a,b)=> [...GRADE_COLS_S1, ...GRADE_COLS_S2].every(([k])=> String(numOrNull(a[k])??'')===String(numOrNull(b[k])??'')) && (a.remarks||'')===(b.remarks||'');
       for(const r of clean){
         const id = studentId + '::' + STATE.currentAcademicYearId + '::' + slugify(r.subject);
         keepIds.add(id);
+        const prior = existingBefore.find(x=>x.id===id);
+        const nowSaved = latestNow.find(x=>x.id===id);
+        if(prior && sameRow(prior, r)) continue;          // admin did not touch this subject
+        if(nowSaved && prior && !sameRow(nowSaved, prior) && sameRow(nowSaved, r)) continue;
         const g = {id, studentId, subject:r.subject.trim(), p1:r.p1, p2:r.p2, p3:r.p3, examS1:r.examS1, p4:r.p4, p5:r.p5, p6:r.p6, examS2:r.examS2,
           remarks:r.remarks, updatedBy:STATE.currentUser.id, updatedByName:STATE.currentUser.fullName, updatedAt:new Date().toISOString()};
         const {error} = await sb.from('grades').upsert(gradeToRow(g));
@@ -2664,6 +2755,7 @@ function periodValue(g, key){
   return vals.length ? vals.reduce((a,v)=>a+v,0)/vals.length : null;
 }
 function renderGradesDashboard(main){
+  refreshGradesIfStale();
   const cls = STATE.dashClass || CLASS_DEFS[0].code;
   const students = STATE.students.filter(s=>s.classCode===cls);
   const ids = new Set(students.map(s=>s.id));
