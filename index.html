@@ -2832,6 +2832,31 @@ function periodValue(g, key){
   const vals = keys.map(k=>g[k]).filter(v=>v!==null && v!==undefined && v!=='').map(Number);
   return vals.length ? vals.reduce((a,v)=>a+v,0)/vals.length : null;
 }
+
+/* ---- Downloads for Dashboard lists (print / save as PDF, or Excel-compatible CSV) ---- */
+function downloadCSVFile(filename, rows){
+  const csv = '\ufeff' + rows.map(r=> r.map(v=>`"${String(v==null?'':v).replace(/"/g,'""')}"`).join(',')).join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 500);
+}
+function listSheetHtml(title, subtitle, headers, bodyRows){
+  const si = STATE.schoolInfo;
+  return `<div class="ps-page">
+    <div class="ps-head">
+      ${si.logoUrl? `<img src="${esc(si.logoUrl)}" style="width:52px;height:52px;object-fit:contain;margin:0 auto 6px;display:block;">` : ''}
+      <h1>${esc(si.name)||'School Name'}</h1>
+      <div>${esc(si.address)||''}${si.address&&si.county?' · ':''}${esc(si.county)||''}</div>
+      <div>Academic Year ${esc(si.year)}</div>
+    </div>
+    <div class="ps-title">${esc(title)}</div>
+    <div style="text-align:center;font-size:12px;margin:-6px 0 12px;color:#444;">${esc(subtitle)}</div>
+    <table class="ps-table"><thead><tr>${headers.map((h,i)=>`<th${h.right?' style="text-align:right;"':''}>${esc(h.t)}</th>`).join('')}</tr></thead>
+    <tbody>${bodyRows.map(r=>`<tr>${r.map((c,i)=>`<td${headers[i]&&headers[i].right?' style="text-align:right;"':''}${c&&c.red?' style="color:#D00000;font-weight:600;'+(headers[i]&&headers[i].right?'text-align:right;':'')+'"':''}>${esc(c&&c.v!==undefined?c.v:c)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+    <div style="font-size:11px;color:#555;margin-top:8px;">Printed ${esc(new Date().toLocaleDateString())}</div>
+  </div>`;
+}
+
 function renderGradesDashboard(main){
   refreshGradesIfStale();
   const cls = STATE.dashClass || CLASS_DEFS[0].code;
@@ -2910,14 +2935,14 @@ function renderGradesDashboard(main){
     </div>
 
     <div class="panel" style="overflow-x:auto;">
-      <h3 style="margin:0 0 10px;font-size:15px;">Students not doing well</h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;"><h3 style="margin:0;font-size:15px;">Students not doing well</h3>${struggling.length?`<div style="display:flex;gap:6px;"><button class="btn ghost" id="dStrugPrint">Download / Print</button><button class="btn ghost" id="dStrugCsv">Excel (CSV)</button></div>`:''}</div>
       ${struggling.length===0 ? `<p class="muted" style="font-size:13px;">No students are below the pass mark. 🎉</p>` : `
       <table><thead><tr><th>Name</th><th class="tright">Average</th><th class="tright">Subjects Failed</th><th>Failing in</th></tr></thead>
         <tbody>${struggling.map(r=>`<tr><td>${esc(r.student.name)||'<span class="muted">(unnamed)</span>'}<div class="muted mono" style="font-size:11px;">${esc(r.student.id)}</div></td><td class="tright mono" style="color:var(--red);font-weight:600;">${f1(r.avg)}</td><td class="tright mono">${r.failed.length}</td><td class="muted" style="font-size:12px;">${esc(r.failed.sort((a,b)=>a.v-b.v).map(x=>x.subject+' ('+Math.round(x.v)+')').join(', '))||'—'}</td></tr>`).join('')}</tbody></table>`}
     </div>
 
     <div class="panel" style="overflow-x:auto;">
-      <h3 style="margin:0 0 10px;font-size:15px;">Class ranking</h3>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin:0 0 10px;"><h3 style="margin:0;font-size:15px;">Class ranking</h3><div style="display:flex;gap:6px;"><button class="btn ghost" id="dRankPrint">Download / Print</button><button class="btn ghost" id="dRankCsv">Excel (CSV)</button></div></div>
       <table><thead><tr><th>Rank</th><th>Name</th><th style="width:30%;"></th><th class="tright">Average</th></tr></thead>
         <tbody>${ranked.map((r,i)=>`<tr><td><strong>${i+1}</strong></td><td>${esc(r.student.name)||'<span class="muted">(unnamed)</span>'}</td><td>${bar(r.avg)}</td><td class="tright mono" style="font-weight:600;color:${r.avg<PASS_MARK?'var(--red)':'inherit'};">${f1(r.avg)}</td></tr>`).join('')}</tbody></table>
     </div>`}
@@ -2925,6 +2950,23 @@ function renderGradesDashboard(main){
   main.querySelector('#dClass').onchange = e=>{ STATE.dashClass = e.target.value; render(); };
   main.querySelector('#dPeriod').onchange = e=>{ STATE.dashPeriod = e.target.value; render(); };
   main.querySelector('#dPrintAll').onclick = ()=> printClassGradeSheets(cls);
+  const clsLabel = CLASS_LABEL[cls]||cls;
+  const fileBase = (clsLabel+'_'+keyLabel).replace(/[^A-Za-z0-9]+/g,'_');
+  const sub = `${clsLabel} · ${keyLabel}`;
+  const rankRows = ranked.map((r,i)=>[i+1, r.student.name||'(unnamed)', r.student.id, f1(r.avg), r.avg>=PASS_MARK?'Pass':'Below pass mark']);
+  const rb = main.querySelector('#dRankPrint');
+  if(rb){
+    rb.onclick = ()=> printSheet(listSheetHtml('Class Ranking', sub, [{t:'Rank'},{t:'Name'},{t:'Student ID'},{t:'Average',right:true},{t:'Status'}],
+      ranked.map((r,i)=>[i+1, r.student.name||'(unnamed)', r.student.id, {v:f1(r.avg), red:r.avg<PASS_MARK}, r.avg>=PASS_MARK?'Pass':'Below pass mark'])));
+    main.querySelector('#dRankCsv').onclick = ()=> downloadCSVFile('Class_Ranking_'+fileBase+'.csv', [['Rank','Name','Student ID','Average','Status'], ...rankRows]);
+  }
+  const sb2 = main.querySelector('#dStrugPrint');
+  if(sb2){
+    const sRows = struggling.map(r=>[r.student.name||'(unnamed)', r.student.id, f1(r.avg), r.failed.length, r.failed.map(x=>x.subject+' ('+x.v+')').join(', ')]);
+    sb2.onclick = ()=> printSheet(listSheetHtml('Students Needing Support', sub+' · below '+PASS_MARK+' average or 3+ subjects failed', [{t:'Name'},{t:'Student ID'},{t:'Average',right:true},{t:'Subjects Failed',right:true},{t:'Failing in'}],
+      struggling.map(r=>[r.student.name||'(unnamed)', r.student.id, {v:f1(r.avg), red:true}, r.failed.length, r.failed.map(x=>x.subject+' ('+x.v+')').join(', ')])));
+    main.querySelector('#dStrugCsv').onclick = ()=> downloadCSVFile('Students_Needing_Support_'+fileBase+'.csv', [['Name','Student ID','Average','Subjects Failed','Failing in'], ...sRows]);
+  }
 }
 
 function renderClassRanking(main){
