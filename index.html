@@ -2242,7 +2242,7 @@ function renderReportCards(main){
   const cls = STATE.gradesClass || CLASS_DEFS[0].code;
   const list = STATE.students.filter(s=>s.classCode===cls).sort((a,b)=>(a.name||'').localeCompare(b.name||''));
   main.innerHTML = `
-    <div class="topline"><div></div><div class="topline-actions"><button class="btn ghost" id="gHistory">Edit History</button><button class="btn ghost" id="gPrintAll">Download / Print All Grade Sheets</button><select id="gClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div></div>
+    <div class="topline"><div></div><div class="topline-actions"><button class="btn ghost" id="gCheck">Check Grades</button><button class="btn ghost" id="gHistory">Edit History</button><button class="btn ghost" id="gPrintAll">Download / Print All Grade Sheets</button><select id="gClass">${CLASS_DEFS.map(c=>`<option value="${c.code}" ${cls===c.code?'selected':''}>${esc(c.label)}</option>`).join('')}</select></div></div>
     <div class="panel" style="overflow-x:auto;">
       ${list.length===0? `<p class="muted" style="font-size:13px;">No students in this class yet.</p>` : `
       <table><thead><tr><th>ID</th><th>Name</th><th class="tright">Subjects Recorded</th><th class="tright">Sem 1 Avg</th><th class="tright">Sem 2 Avg</th><th></th></tr></thead>
@@ -2260,6 +2260,7 @@ function renderReportCards(main){
   main.querySelector('#gClass').onchange = e=>{ STATE.gradesClass = e.target.value; render(); };
   main.querySelector('#gPrintAll').onclick = ()=> printClassGradeSheets(cls);
   main.querySelector('#gHistory').onclick = ()=> openGradeEditLog();
+  main.querySelector('#gCheck').onclick = ()=> openGradesCheck();
   main.querySelectorAll('[data-grade]').forEach(b=> b.onclick = ()=> openGradesModal(b.dataset.grade));
   main.querySelectorAll('[data-gradesheet]').forEach(b=> b.onclick = ()=> openGradeSheet(b.dataset.gradesheet));
   main.querySelectorAll('[data-transcript]').forEach(b=> b.onclick = ()=> openTranscriptModal(b.dataset.transcript));
@@ -2742,6 +2743,83 @@ async function openGradeEditLog(){
   box.innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>When</th><th>Student</th><th>Edited by</th><th>Reason</th><th>What changed</th></tr></thead><tbody>${
     data.map(r=>`<tr><td style="white-space:nowrap;">${esc(fmtDT(r.edited_at))}</td><td>${esc(r.student_name||r.student_id)}<div class="muted" style="font-size:11px;">${esc(CLASS_LABEL[r.class_code]||r.class_code||'')}</div></td><td>${esc(r.edited_by_name||'')}</td><td>${esc(r.reason)}</td><td class="muted" style="font-size:12px;">${esc(r.changes||'')}</td></tr>`).join('')
   }</tbody></table></div>`;
+}
+
+
+/* ---- Check Grades: compares what is really saved in Supabase against what each class should have ---- */
+async function openGradesCheck(){
+  openModal(`<button class="close-x" data-close>×</button><h3>Check Grades</h3><p class="mhint">Reads the grades directly from the database (not this screen's copy) and shows what is missing.</p><div id="gcBody" class="muted" style="font-size:13px;">Checking every saved grade…</div><div class="modal-actions"><button class="btn" data-close>Close</button></div>`, 'wide');
+  modalRoot.querySelectorAll('[data-close]').forEach(b=> b.onclick=closeModal);
+  const box = modalRoot.querySelector('#gcBody');
+  const {data, error} = await fetchAll(()=> sb.from('grades').select('*').order('id'));
+  if(error || !data){ box.textContent = 'Could not read grades from the server: '+((error&&error.message)||'no connection')+'. Check your internet and try again.'; return; }
+  const ayId = STATE.currentAcademicYearId;
+  const COLS = ['p1','p2','p3','exam_s1','p4','p5','p6','exam_s2'];
+  const hasScore = r => COLS.some(c=> r[c]!==null && r[c]!==undefined && r[c]!=='');
+  const thisYear = data.filter(r=>r.academic_year_id===ayId);
+  const otherYear = data.filter(r=>r.academic_year_id!==ayId);
+  const studentIds = new Set(STATE.students.map(s=>s.id));
+  const orphans = thisYear.filter(r=>!studentIds.has(r.student_id));
+  const empty = thisYear.filter(r=>!hasScore(r));
+  const byStudent = {};
+  thisYear.forEach(r=>{ (byStudent[r.student_id] = byStudent[r.student_id]||[]).push(r); });
+
+  // per class
+  const perClass = CLASS_DEFS.map(c=>{
+    const studs = STATE.students.filter(s=>s.classCode===c.code && s.status!=='Inactive');
+    const expected = (STATE.classSubjects[c.code]||[]);
+    const expSlugs = expected.map(slugify);
+    let complete=0, none=0; const details=[]; const extraSubs = new Set();
+    studs.forEach(st=>{
+      const rows = (byStudent[st.id]||[]).filter(hasScore);
+      const have = new Set(rows.map(r=>slugify(r.subject)));
+      rows.forEach(r=>{ if(expected.length && !expSlugs.includes(slugify(r.subject))) extraSubs.add(r.subject); });
+      const missing = expected.filter(sub=>!have.has(slugify(sub)));
+      if(expected.length && missing.length===0) complete++;
+      if(rows.length===0) none++;
+      if(missing.length) details.push({name:st.name||st.id, id:st.id, got:rows.length, missing});
+    });
+    return {c, studs:studs.length, expected:expected.length, complete, none, details, extra:[...extraSubs]};
+  });
+
+  // who saved what
+  const byWho = {};
+  thisYear.forEach(r=>{
+    const k = r.updated_by_name || '(unknown)';
+    const o = byWho[k] = byWho[k] || {n:0, last:null};
+    o.n++; if(!o.last || (r.updated_at||'')>o.last) o.last = r.updated_at;
+  });
+
+  const warn = [];
+  if(otherYear.length) warn.push(`${otherYear.length} grade row(s) are saved under a different academic year, so they do not appear in this year.`);
+  if(orphans.length) warn.push(`${orphans.length} grade row(s) belong to student IDs that are not in the student list.`);
+  if(empty.length) warn.push(`${empty.length} subject row(s) exist but have no scores typed in yet.`);
+
+  const cur = STATE.gradesClass || CLASS_DEFS[0].code;
+  box.classList.remove('muted');
+  box.innerHTML = `
+    <div class="panel" style="margin-bottom:12px;"><b>${thisYear.length}</b> grade rows saved for this academic year, covering <b>${Object.keys(byStudent).length}</b> students.
+      ${warn.length? `<ul style="margin:8px 0 0 18px;color:var(--bad,#b00020);">${warn.map(w=>`<li>${esc(w)}</li>`).join('')}</ul>`:`<div class="muted" style="font-size:12px;margin-top:4px;">No stray or misplaced rows found.</div>`}
+    </div>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Class</th><th class="tright">Students</th><th class="tright">Subjects expected</th><th class="tright">Fully graded</th><th class="tright">Nothing entered</th><th class="tright">Missing something</th></tr></thead>
+    <tbody>${perClass.map(x=>`<tr data-cls="${x.c.code}" style="cursor:pointer;${x.c.code===cur?'background:#f2f2f2;':''}"><td>${esc(x.c.label)}</td><td class="tright">${x.studs}</td><td class="tright">${x.expected||'<span class="muted">not set</span>'}</td><td class="tright">${x.complete}</td><td class="tright">${x.none}</td><td class="tright"><b>${x.details.length}</b></td></tr>`).join('')}</tbody></table></div>
+    <p class="muted" style="font-size:12px;">Click a class to list exactly which students are missing which subjects.</p>
+    <div id="gcDetail"></div>
+    <h4 style="margin:16px 0 6px;">Who saved grades</h4>
+    <div style="overflow-x:auto;"><table><thead><tr><th>Saved by</th><th class="tright">Subject rows</th><th>Last saved</th></tr></thead>
+    <tbody>${Object.keys(byWho).sort().map(k=>`<tr><td>${esc(k)}</td><td class="tright">${byWho[k].n}</td><td>${esc(byWho[k].last? fmtDT(byWho[k].last):'')}</td></tr>`).join('')}</tbody></table></div>
+    <p class="muted" style="font-size:12px;">If a teacher says they entered grades but their name is missing here or the last-saved time is old, their save never reached the database.</p>`;
+  const showDetail = (code)=>{
+    const x = perClass.find(y=>y.c.code===code); const d = box.querySelector('#gcDetail'); if(!x||!d) return;
+    box.querySelectorAll('[data-cls]').forEach(tr=> tr.style.background = tr.dataset.cls===code ? '#f2f2f2' : '');
+    d.innerHTML = `<h4 style="margin:14px 0 6px;">${esc(x.c.label)} — missing grades</h4>` +
+      (x.expected===0 ? `<p class="muted" style="font-size:13px;">No subjects are set for this class in Curriculum Settings, so nothing can be compared.</p>` :
+       x.details.length===0 ? `<p style="font-size:13px;">Every student in this class has every subject graded.</p>` :
+       `<div style="overflow-x:auto;"><table><thead><tr><th>Student</th><th class="tright">Subjects graded</th><th>Missing subjects</th></tr></thead><tbody>${x.details.map(r=>`<tr><td>${esc(r.name)}<div class="muted mono" style="font-size:11px;">${esc(r.id)}</div></td><td class="tright">${r.got} of ${x.expected}</td><td>${r.missing.map(esc).join(', ')}</td></tr>`).join('')}</tbody></table></div>`) +
+      (x.extra.length ? `<p style="font-size:12px;color:var(--bad,#b00020);">Grades exist under subject names that are not in this class's subject list (possible spelling difference): ${x.extra.map(esc).join(', ')}</p>`:'');
+  };
+  box.querySelectorAll('[data-cls]').forEach(tr=> tr.onclick = ()=> showDetail(tr.dataset.cls));
+  showDetail(cur);
 }
 
 /* ---- Class Dashboard (Grades) ---- */
